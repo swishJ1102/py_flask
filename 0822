@@ -1,0 +1,658 @@
+为了优化并扩展现有的 Flask 项目，使其符合新的要求，我们需要做以下几件事：
+
+1. **登录后重定向到一个搜索页面** (`search.html`)，用户可以在该页面输入机能ID和工作目录。
+2. **根据输入的机能ID检索本地目录中的相关Excel文件**。
+3. **将检索出的文件展示给用户**，用户可以勾选要上传的文件。
+4. **上传所选文件**并处理这些文件，最终显示处理结果。
+
+### 项目结构
+```
+flask_app/
+│
+├── app.py
+├── templates/
+│   ├── login.html
+│   ├── register.html
+│   ├── search.html
+│   ├── results.html
+├── uploads/
+└── database/
+    └── app.db
+```
+
+### 1. `app.py` (Flask 主应用)
+```python
+from flask import Flask, render_template, request, redirect, url_for, flash, session
+from werkzeug.utils import secure_filename
+from werkzeug.security import generate_password_hash, check_password_hash
+import os
+import sqlite3
+import pandas as pd
+
+app = Flask(__name__)
+app.secret_key = 'supersecretkey'
+app.config['UPLOAD_FOLDER'] = 'uploads/'
+app.config['DATABASE'] = 'database/app.db'
+app.config['LOCAL_SEARCH_FOLDER'] = 'local_docs/'  # 存放本地文档的目录
+
+# 初始化数据库
+def init_db():
+    conn = sqlite3.connect(app.config['DATABASE'])
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password TEXT NOT NULL
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+init_db()
+
+# 注册用户
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        hashed_password = generate_password_hash(password, method='sha256')
+
+        conn = sqlite3.connect(app.config['DATABASE'])
+        cursor = conn.cursor()
+        try:
+            cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, hashed_password))
+            conn.commit()
+            flash('Registration successful! You can now log in.', 'success')
+            return redirect(url_for('login'))
+        except sqlite3.IntegrityError:
+            flash('Username already exists. Please choose another one.', 'danger')
+        finally:
+            conn.close()
+
+    return render_template('register.html')
+
+# 用户登录
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+
+        conn = sqlite3.connect(app.config['DATABASE'])
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
+        user = cursor.fetchone()
+        conn.close()
+
+        if user and check_password_hash(user[2], password):
+            session['user_id'] = user[0]
+            session['username'] = user[1]
+            flash('Login successful!', 'success')
+            return redirect(url_for('search'))
+        else:
+            flash('Invalid credentials. Please try again.', 'danger')
+
+    return render_template('login.html')
+
+# 搜索页面
+@app.route('/search', methods=['GET', 'POST'])
+def search():
+    if 'username' not in session:
+        return redirect(url_for('login'))
+
+    files = []
+    if request.method == 'POST':
+        function_id = request.form['function_id']
+        work_directory = request.form['work_directory']
+
+        # 构建要搜索的目录路径
+        search_path = os.path.join(app.config['LOCAL_SEARCH_FOLDER'], work_directory)
+
+        # 检索指定目录下的文件
+        if os.path.exists(search_path):
+            files = [f for f in os.listdir(search_path) if function_id in f and f.endswith('.xlsx')]
+
+        if not files:
+            flash('No files found matching the criteria.', 'warning')
+
+    return render_template('search.html', files=files)
+
+# 处理上传的文件
+@app.route('/upload', methods=['POST'])
+def upload():
+    if 'username' not in session:
+        return redirect(url_for('login'))
+
+    if request.method == 'POST':
+        selected_files = request.form.getlist('files')
+        if not selected_files:
+            flash('No files selected for upload.', 'danger')
+            return redirect(url_for('search'))
+
+        # 上传并处理选中的文件
+        uploaded_files = []
+        for filename in selected_files:
+            local_path = os.path.join(app.config['LOCAL_SEARCH_FOLDER'], filename)
+            if os.path.exists(local_path):
+                dest_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(filename))
+                os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+                os.rename(local_path, dest_path)  # 移动文件到上传目录
+                uploaded_files.append(dest_path)
+
+        # 处理这些文件
+        results = {}
+        for file in uploaded_files:
+            data = pd.read_excel(file)
+            results[file] = data.head().to_html()
+
+        return render_template('results.html', results=results)
+
+    return redirect(url_for('search'))
+
+# 用户登出
+@app.route('/logout')
+def logout():
+    session.pop('user_id', None)
+    session.pop('username', None)
+    flash('You have been logged out.', 'info')
+    return redirect(url_for('login'))
+
+if __name__ == '__main__':
+    if not os.path.exists(app.config['UPLOAD_FOLDER']):
+        os.makedirs(app.config['UPLOAD_FOLDER'])
+    app.run(debug=True)
+```
+
+### 2. `templates/search.html` (搜索页面)
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Search Files</title>
+</head>
+<body>
+    <h2>Welcome, {{ session['username'] }}!</h2>
+    <form method="post">
+        <label for="function_id">Function ID:</label>
+        <input type="text" id="function_id" name="function_id" required>
+        <br>
+        <label for="work_directory">Work Directory:</label>
+        <input type="text" id="work_directory" name="work_directory" required>
+        <br>
+        <button type="submit">Search</button>
+    </form>
+
+    {% if files %}
+    <form method="post" action="{{ url_for('upload') }}">
+        <h3>Select Files to Upload:</h3>
+        <ul>
+            {% for file in files %}
+            <li>
+                <input type="checkbox" name="files" value="{{ file }}"> {{ file }}
+            </li>
+            {% endfor %}
+        </ul>
+        <button type="submit">Upload Selected Files</button>
+    </form>
+    {% endif %}
+
+    <p><a href="{{ url_for('logout') }}">Logout</a></p>
+    {% for message in get_flashed_messages(with_categories=true) %}
+        <div class="alert alert-{{ message[0] }}">{{ message[1] }}</div>
+    {% endfor %}
+</body>
+</html>
+```
+
+### 3. `templates/results.html` (处理结果页面)
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Processing Results</title>
+</head>
+<body>
+    <h2>Uploaded and Processed Files</h2>
+
+    {% for filename, result in results.items() %}
+    <h3>{{ filename }}</h3>
+    <div>{{ result|safe }}</div>
+    <br>
+    {% endfor %}
+
+    <p><a href="{{ url_for('search') }}">Go back to search</a></p>
+</body>
+</html>
+```
+
+### 4. `local_docs/` 文件夹
+创建一个 `local_docs/` 文件夹，用于存储你的本地 Excel 文档。这些文档将在 `search` 页面中根据用户输入的 `Function ID` 和 `Work Directory` 进行检索。
+
+### 5. 运行项目
+
+1. **安装依赖**: 你需要安装 Flask 和 Pandas，可以使用 pip:
+   ```bash
+   pip install flask pandas
+   ```
+
+2. **准备本地文档**: 在 `local_docs/` 目录下放置一些 Excel 文件，文件名中包含机能ID。
+
+3. **启动 Flask 应用**:
+   ```bash
+   python app.py
+   ```
+
+4. **访问应用**: 打开浏览器并访问 `http://127.0.0.1:5000/`。
+
+### 项目功能：
+
+- **注册和登录**: 用户可以注册和登录系统。
+- **搜索页面**: 登录后用户会被重定向到搜索页面，可以输入 `Function ID` 和 `Work Directory` 来检索本地文档。
+- **文档展示和选择**: 系统会根据用户输入的 `Function ID` 检索本地目录中的相关 Excel 文档，并展示给用户，用户可以选择要上传的文档。
+- **文件上传和处理**: 用户选中的文件会被上传到服务器，并在服务器上进行处理（展示文件内容的前5行）。
+- **结果展示**: 处理后的结果会在页面上展示出来。
+
+这个改进后的项目适合管理和处理基于特定条件的本地 Excel 文件，并通过一个简洁的 Web 界面进行操作。
+
+将项目按照功能模块拆分成多个 Python 文件，以更好地组织代码结构。我们可以将项目分为以下几个模块：
+
+1. **`app.py`**: 主应用入口，用于启动 Flask 应用。
+2. **`auth.py`**: 处理用户认证（注册、登录、登出）。
+3. **`search.py`**: 处理文件搜索、展示、上传相关的功能。
+4. **`models.py`**: 数据库模型及初始化。
+5. **`config.py`**: 配置文件，存储应用的配置项。
+6. **`forms.py`**: 表单相关的验证和处理。
+
+### 项目结构
+```
+flask_app/
+│
+├── app.py
+├── auth.py
+├── search.py
+├── models.py
+├── config.py
+├── forms.py
+├── templates/
+│   ├── login.html
+│   ├── register.html
+│   ├── search.html
+│   ├── results.html
+├── uploads/
+├── local_docs/
+└── database/
+    └── app.db
+```
+
+### 1. `app.py` (主应用入口)
+```python
+from flask import Flask
+from config import Config
+from models import init_db
+from auth import auth_bp
+from search import search_bp
+
+app = Flask(__name__)
+app.config.from_object(Config)
+
+# 初始化数据库
+init_db(app)
+
+# 注册蓝图
+app.register_blueprint(auth_bp)
+app.register_blueprint(search_bp)
+
+if __name__ == '__main__':
+    app.run(debug=True)
+```
+
+### 2. `auth.py` (用户认证)
+```python
+from flask import Blueprint, render_template, request, redirect, url_for, flash, session
+from werkzeug.security import generate_password_hash, check_password_hash
+import sqlite3
+from forms import RegistrationForm, LoginForm
+
+auth_bp = Blueprint('auth', __name__)
+
+@auth_bp.route('/register', methods=['GET', 'POST'])
+def register():
+    form = RegistrationForm()
+    if form.validate_on_submit():
+        username = form.username.data
+        password = form.password.data
+        hashed_password = generate_password_hash(password, method='sha256')
+
+        conn = sqlite3.connect('database/app.db')
+        cursor = conn.cursor()
+        try:
+            cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, hashed_password))
+            conn.commit()
+            flash('Registration successful! You can now log in.', 'success')
+            return redirect(url_for('auth.login'))
+        except sqlite3.IntegrityError:
+            flash('Username already exists. Please choose another one.', 'danger')
+        finally:
+            conn.close()
+
+    return render_template('register.html', form=form)
+
+@auth_bp.route('/login', methods=['GET', 'POST'])
+def login():
+    form = LoginForm()
+    if form.validate_on_submit():
+        username = form.username.data
+        password = form.password.data
+
+        conn = sqlite3.connect('database/app.db')
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
+        user = cursor.fetchone()
+        conn.close()
+
+        if user and check_password_hash(user[2], password):
+            session['user_id'] = user[0]
+            session['username'] = user[1]
+            flash('Login successful!', 'success')
+            return redirect(url_for('search.search'))
+        else:
+            flash('Invalid credentials. Please try again.', 'danger')
+
+    return render_template('login.html', form=form)
+
+@auth_bp.route('/logout')
+def logout():
+    session.pop('user_id', None)
+    session.pop('username', None)
+    flash('You have been logged out.', 'info')
+    return redirect(url_for('auth.login'))
+```
+
+### 3. `search.py` (文件搜索、展示和上传)
+```python
+from flask import Blueprint, render_template, request, redirect, url_for, flash, session
+from werkzeug.utils import secure_filename
+import os
+import pandas as pd
+from forms import SearchForm
+
+search_bp = Blueprint('search', __name__)
+
+@search_bp.route('/search', methods=['GET', 'POST'])
+def search():
+    if 'username' not in session:
+        return redirect(url_for('auth.login'))
+
+    form = SearchForm()
+    files = []
+    if form.validate_on_submit():
+        function_id = form.function_id.data
+        work_directory = form.work_directory.data
+
+        search_path = os.path.join('local_docs/', work_directory)
+        if os.path.exists(search_path):
+            files = [f for f in os.listdir(search_path) if function_id in f and f.endswith('.xlsx')]
+
+        if not files:
+            flash('No files found matching the criteria.', 'warning')
+
+    return render_template('search.html', form=form, files=files)
+
+@search_bp.route('/upload', methods=['POST'])
+def upload():
+    if 'username' not in session:
+        return redirect(url_for('auth.login'))
+
+    selected_files = request.form.getlist('files')
+    if not selected_files:
+        flash('No files selected for upload.', 'danger')
+        return redirect(url_for('search.search'))
+
+    uploaded_files = []
+    for filename in selected_files:
+        local_path = os.path.join('local_docs/', filename)
+        if os.path.exists(local_path):
+            dest_path = os.path.join('uploads/', secure_filename(filename))
+            os.makedirs('uploads/', exist_ok=True)
+            os.rename(local_path, dest_path)  # 移动文件到上传目录
+            uploaded_files.append(dest_path)
+
+    results = {}
+    for file in uploaded_files:
+        data = pd.read_excel(file)
+        results[file] = data.head().to_html()
+
+    return render_template('results.html', results=results)
+```
+
+### 4. `models.py` (数据库模型及初始化)
+```python
+import sqlite3
+from flask import g
+
+def init_db(app):
+    with app.app_context():
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL UNIQUE,
+                password TEXT NOT NULL
+            )
+        ''')
+        conn.commit()
+
+def get_db():
+    if 'db' not in g:
+        g.db = sqlite3.connect('database/app.db')
+    return g.db
+
+@app.teardown_appcontext
+def close_db(error):
+    if 'db' in g:
+        g.db.close()
+```
+
+### 5. `config.py` (配置文件)
+```python
+import os
+
+class Config:
+    SECRET_KEY = os.environ.get('SECRET_KEY') or 'supersecretkey'
+    UPLOAD_FOLDER = 'uploads/'
+    LOCAL_SEARCH_FOLDER = 'local_docs/'
+    DATABASE = 'database/app.db'
+```
+
+### 6. `forms.py` (表单验证)
+```python
+from flask_wtf import FlaskForm
+from wtforms import StringField, PasswordField, SubmitField
+from wtforms.validators import DataRequired, Length
+
+class RegistrationForm(FlaskForm):
+    username = StringField('Username', validators=[DataRequired(), Length(min=2, max=20)])
+    password = PasswordField('Password', validators=[DataRequired()])
+    submit = SubmitField('Register')
+
+class LoginForm(FlaskForm):
+    username = StringField('Username', validators=[DataRequired(), Length(min=2, max=20)])
+    password = PasswordField('Password', validators=[DataRequired()])
+    submit = SubmitField('Login')
+
+class SearchForm(FlaskForm):
+    function_id = StringField('Function ID', validators=[DataRequired()])
+    work_directory = StringField('Work Directory', validators=[DataRequired()])
+    submit = SubmitField('Search')
+```
+
+### 运行项目
+
+1. **安装依赖**: 
+   ```bash
+   pip install flask flask-wtf pandas
+   ```
+
+2. **准备本地文档**: 将 Excel 文件放入 `local_docs/` 目录。
+
+3. **启动 Flask 应用**:
+   ```bash
+   python app.py
+   ```
+
+4. **访问应用**: 在浏览器中打开 `http://127.0.0.1:5000/`。
+
+### 项目功能：
+
+- **用户注册、登录和登出** 通过 `auth.py` 模块实现。
+- **文件搜索、展示和上传** 通过 `search.py` 模块实现。
+- **数据库初始化和管理** 通过 `models.py` 模块实现。
+- **配置项** 通过 `config.py` 统一管理。
+- **表单处理和验证** 通过 `forms.py` 实现。
+
+这套优化后的结构更易于维护和扩展，模块化设计使得代码的复用性更高，并且可以更方便地管理不同的功能。
+
+要在不直接部署源码的情况下上线 Flask 项目，可以通过以下几种方式实现：
+
+### 1. **将项目打包为可执行文件**
+将 Flask 应用打包成一个独立的可执行文件，部署时不需要依赖源码。这通常是通过工具如 `PyInstaller` 或 `cx_Freeze` 实现的。
+
+#### 使用 PyInstaller 打包
+1. **安装 PyInstaller**：
+   ```bash
+   pip install pyinstaller
+   ```
+
+2. **打包 Flask 应用**：
+   在项目的根目录下运行以下命令，将 `app.py` 打包为单个可执行文件：
+   ```bash
+   pyinstaller --onefile app.py
+   ```
+
+   这将创建一个 `dist/` 目录，里面包含 `app.exe`（在 Windows 上）或者 `app`（在 Linux 上），它是一个独立的可执行文件。
+
+3. **部署**：
+   - 将 `dist/` 目录下的可执行文件上传到服务器。
+   - 上传其他必须的静态文件（例如 `templates/`、`uploads/` 文件夹）。
+   - 在服务器上运行可执行文件：
+     ```bash
+     ./app
+     ```
+
+### 2. **使用 Docker 容器化部署**
+将应用封装进 Docker 容器中，这样部署时只需在服务器上运行 Docker 容器即可，无需直接部署源码。
+
+#### Dockerfile 示例
+1. **创建 Dockerfile**:
+   在项目根目录下创建一个名为 `Dockerfile` 的文件，内容如下：
+   ```dockerfile
+   # 使用 Python 官方基础镜像
+   FROM python:3.10-slim
+
+   # 设置工作目录
+   WORKDIR /app
+
+   # 复制当前目录的内容到容器中
+   COPY . /app
+
+   # 安装依赖
+   RUN pip install --no-cache-dir -r requirements.txt
+
+   # 暴露 Flask 默认端口
+   EXPOSE 5000
+
+   # 运行 Flask 应用
+   CMD ["python", "app.py"]
+   ```
+
+2. **创建 `requirements.txt`**:
+   在项目根目录下创建一个 `requirements.txt` 文件，列出项目的所有依赖项，例如：
+   ```plaintext
+   Flask==2.2.3
+   pandas==1.5.3
+   flask-wtf==1.0.1
+   ```
+
+3. **构建 Docker 镜像**：
+   在项目根目录下运行以下命令构建 Docker 镜像：
+   ```bash
+   docker build -t flask_app .
+   ```
+
+4. **运行 Docker 容器**：
+   将构建的 Docker 镜像在服务器上运行：
+   ```bash
+   docker run -d -p 5000:5000 flask_app
+   ```
+
+   现在，Flask 应用将在服务器的端口 `5000` 上运行，你可以通过 `http://<服务器IP>:5000` 访问它。
+
+### 3. **使用 WSGI 部署**
+在生产环境中，Flask 应用通常通过 WSGI 服务器（如 `gunicorn` 或 `uWSGI`）运行，并通过 `nginx` 或 `Apache` 作为反向代理。
+
+#### 使用 `gunicorn` 部署
+1. **安装 gunicorn**：
+   ```bash
+   pip install gunicorn
+   ```
+
+2. **运行 Flask 应用**：
+   在服务器上，通过 `gunicorn` 运行 Flask 应用：
+   ```bash
+   gunicorn -w 4 -b 0.0.0.0:8000 app:app
+   ```
+
+   这里 `-w 4` 表示使用4个工作进程，`-b 0.0.0.0:8000` 表示在 `0.0.0.0` 的 `8000` 端口上监听。
+
+3. **使用 nginx 作为反向代理**：
+   配置 `nginx` 作为反向代理，将 `http://<服务器IP>:80` 上的请求转发给 `gunicorn` 运行的 Flask 应用。
+
+   在 `/etc/nginx/sites-available/default` 中配置：
+   ```nginx
+   server {
+       listen 80;
+       server_name <your_domain>;
+
+       location / {
+           proxy_pass http://127.0.0.1:8000;
+           proxy_set_header Host $host;
+           proxy_set_header X-Real-IP $remote_addr;
+           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+           proxy_set_header X-Forwarded-Proto $scheme;
+       }
+   }
+   ```
+
+4. **启动 nginx**：
+   ```bash
+   sudo systemctl start nginx
+   ```
+
+### 4. **云服务部署**
+如果你不想在服务器上管理应用和环境，可以考虑使用云平台如 `Heroku`、`AWS Elastic Beanstalk` 或 `Google Cloud Run` 来部署。
+
+例如，在 `Heroku` 上部署：
+1. **安装 Heroku CLI** 并登录：
+   ```bash
+   heroku login
+   ```
+
+2. **创建一个 Heroku 应用**：
+   ```bash
+   heroku create my-flask-app
+   ```
+
+3. **推送代码到 Heroku**：
+   ```bash
+   git push heroku main
+   ```
+
+   Heroku 会自动检测并部署 Flask 应用。
+
+### 5. **总结**
+这些方法都可以让你在不直接暴露源码的情况下，将 Flask 应用部署到服务器或云环境中。根据项目需求和服务器资源，你可以选择最合适的方法。如果希望最大程度地简化部署流程，使用 Docker 或云服务（如 Heroku）是非常不错的选择。
