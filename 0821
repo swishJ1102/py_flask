@@ -1,0 +1,301 @@
+要实现你描述的功能，我们需要以下几个步骤：
+
+1. **用户登录**：使用 Flask 与 PostgreSQL 数据库进行用户认证。
+2. **操作界面**：允许用户输入机能ID和工作目录，然后在本地检索相应的 Excel 文件。
+3. **文件上传**：用户选择文件上传到服务器。
+4. **服务器处理文件**：处理上传的 Excel 文件并展示结果。
+
+### 步骤 1：准备工作
+
+#### 1.1. 安装所需的库
+
+首先，我们需要安装以下库：
+
+```bash
+pip install Flask psycopg2-binary Flask-SQLAlchemy Flask-Login pandas openpyxl
+```
+
+- **Flask**: Web 框架。
+- **psycopg2-binary**: Python 与 PostgreSQL 的连接库。
+- **Flask-SQLAlchemy**: ORM，用于与数据库交互。
+- **Flask-Login**: 处理用户登录。
+- **pandas** 和 **openpyxl**: 用于处理 Excel 文件。
+
+#### 1.2. 项目结构
+
+```plaintext
+my_flask_app/
+├── app.py
+├── config.py
+├── models.py
+├── forms.py
+├── templates/
+│   ├── base.html
+│   ├── login.html
+│   ├── dashboard.html
+│   ├── results.html
+├── uploads/
+├── static/
+│   └── style.css
+└── venv/
+```
+
+### 步骤 2：实现代码
+
+#### 2.1. 配置文件 `config.py`
+
+```python
+import os
+
+class Config:
+    SECRET_KEY = 'your_secret_key'
+    SQLALCHEMY_DATABASE_URI = 'postgresql://username:password@localhost/yourdatabase'
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+    UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')
+    ALLOWED_EXTENSIONS = {'xlsx', 'xls'}
+```
+
+#### 2.2. 数据库模型 `models.py`
+
+```python
+from flask_sqlalchemy import SQLAlchemy
+from flask_login import UserMixin
+
+db = SQLAlchemy()
+
+class User(UserMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(150), nullable=False, unique=True)
+    password = db.Column(db.String(150), nullable=False)
+
+    def __repr__(self):
+        return f'<User {self.username}>'
+```
+
+#### 2.3. 表单 `forms.py`
+
+```python
+from flask_wtf import FlaskForm
+from wtforms import StringField, PasswordField, SubmitField
+from wtforms.validators import DataRequired
+
+class LoginForm(FlaskForm):
+    username = StringField('Username', validators=[DataRequired()])
+    password = PasswordField('Password', validators=[DataRequired()])
+    submit = SubmitField('Login')
+
+class SearchForm(FlaskForm):
+    function_id = StringField('Function ID', validators=[DataRequired()])
+    work_directory = StringField('Work Directory', validators=[DataRequired()])
+    submit = SubmitField('Search')
+```
+
+#### 2.4. Flask 应用 `app.py`
+
+```python
+from flask import Flask, render_template, redirect, url_for, flash, request, send_from_directory
+from flask_sqlalchemy import SQLAlchemy
+from flask_login import LoginManager, login_user, login_required, logout_user, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
+import os
+import pandas as pd
+from config import Config
+from models import db, User
+from forms import LoginForm, SearchForm
+
+app = Flask(__name__)
+app.config.from_object(Config)
+db.init_app(app)
+
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    form = LoginForm()
+    if form.validate_on_submit():
+        user = User.query.filter_by(username=form.username.data).first()
+        if user and check_password_hash(user.password, form.password.data):
+            login_user(user)
+            return redirect(url_for('dashboard'))
+        else:
+            flash('Invalid username or password')
+    return render_template('login.html', form=form)
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for('login'))
+
+@app.route('/dashboard', methods=['GET', 'POST'])
+@login_required
+def dashboard():
+    form = SearchForm()
+    files = []
+    if form.validate_on_submit():
+        function_id = form.function_id.data
+        work_directory = form.work_directory.data
+
+        # 检索 Excel 文件
+        for root, dirs, files_in_dir in os.walk(work_directory):
+            for file in files_in_dir:
+                if file.endswith(('.xlsx', '.xls')) and function_id in file:
+                    files.append(os.path.join(root, file))
+
+        return render_template('dashboard.html', form=form, files=files)
+    
+    return render_template('dashboard.html', form=form, files=files)
+
+@app.route('/upload', methods=['POST'])
+@login_required
+def upload():
+    if 'files' not in request.files:
+        flash('No file part')
+        return redirect(request.url)
+
+    uploaded_files = request.files.getlist('files')
+    saved_files = []
+    
+    for file in uploaded_files:
+        if file.filename == '':
+            continue
+        if allowed_file(file.filename):
+            filename = secure_filename(file.filename)
+            file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+            saved_files.append(filename)
+
+    return render_template('results.html', files=saved_files)
+
+@app.route('/uploads/<filename>')
+@login_required
+def uploaded_file(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+def allowed_file(filename):
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
+
+@app.route('/process', methods=['POST'])
+@login_required
+def process_files():
+    # 处理上传的文件
+    processed_results = []
+    
+    for filename in request.form.getlist('files'):
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        df = pd.read_excel(file_path)
+        # 简单处理，获取前5行
+        result = df.head()
+        processed_results.append(result.to_html())
+
+    return render_template('results.html', files=request.form.getlist('files'), results=processed_results)
+
+if __name__ == '__main__':
+    app.run(debug=True)
+```
+
+#### 2.5. HTML 模板
+
+**`templates/base.html`**:
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Flask App{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        {% block content %}{% endblock %}
+    </div>
+</body>
+</html>
+```
+
+**`templates/login.html`**:
+
+```html
+{% extends "base.html" %}
+{% block title %}Login{% endblock %}
+{% block content %}
+    <h2>Login</h2>
+    <form method="POST">
+        {{ form.hidden_tag() }}
+        <p>{{ form.username.label }}<br>{{ form.username(size=32) }}</p>
+        <p>{{ form.password.label }}<br>{{ form.password(size=32) }}</p>
+        <p>{{ form.submit() }}</p>
+    </form>
+{% endblock %}
+```
+
+**`templates/dashboard.html`**:
+
+```html
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+    <h2>Search Excel Files</h2>
+    <form method="POST">
+        {{ form.hidden_tag() }}
+        <p>{{ form.function_id.label }}<br>{{ form.function_id(size=32) }}</p>
+        <p>{{ form.work_directory.label }}<br>{{ form.work_directory(size=32) }}</p>
+        <p>{{ form.submit() }}</p>
+    </form>
+
+    {% if files %}
+        <h3>Search Results</h3>
+        <form method="POST" action="{{ url_for('upload') }}" enctype="multipart/form-data">
+            <ul>
+                {% for file in files %}
+                    <li>
+                        <input type="checkbox" name="files" value="{{ file }}">
+                        {{ file }}
+                    </li>
+                {% endfor %}
+            </ul>
+            <button type="submit">Upload Selected Files</button>
+        </form>
+    {% endif %}
+{% endblock %}
+```
+
+**`templates/results.html`**:
+
+```html
+{% extends "base.html" %}
+{% block title %}Results{% endblock %}
+{% block content %}
+    <h2>Uploaded Files</h2>
+    <ul>
+        {% for file in files %}
+            <li><a href="{{ url_for('uploaded_file', filename=file) }}">{{ file }}</a></li>
+        {% endfor %}
+    </ul>
+
+    {% if results %}
+        <h2>Processed Results</h2>
+        {% for result in results %}
+            <div>{{ result|safe }}</div>
+        {% endfor %}
+    {% endif %}
+{% endblock %}
+```
+
+### 3. 部署和运行
+
+#### 3.1. 初始化数据库
+
+在第一次运行应用之前，需要初始化数据库并创建用户表：
+
+```bash
+export FLASK_APP=app.py
