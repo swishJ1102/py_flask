@@ -1,3 +1,152 @@
+以下是实现上述功能所需的几个 HTML 模板文件。每个文件都放在 `templates/` 目录下。
+
+### 1. `login.html`
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login</title>
+</head>
+<body>
+    <h2>Login</h2>
+    <form method="POST">
+        {{ form.hidden_tag() }}
+        <div>
+            {{ form.username.label }}<br>
+            {{ form.username(size=32) }}<br>
+            {% for error in form.username.errors %}
+                <span style="color: red;">[{{ error }}]</span><br>
+            {% endfor %}
+        </div>
+        <div>
+            {{ form.password.label }}<br>
+            {{ form.password(size=32) }}<br>
+            {% for error in form.password.errors %}
+                <span style="color: red;">[{{ error }}]</span><br>
+            {% endfor %}
+        </div>
+        <div>
+            {{ form.submit() }}
+        </div>
+    </form>
+    <p>Don't have an account? <a href="{{ url_for('auth.register') }}">Register here</a></p>
+</body>
+</html>
+```
+
+### 2. `register.html`
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register</title>
+</head>
+<body>
+    <h2>Register</h2>
+    <form method="POST">
+        {{ form.hidden_tag() }}
+        <div>
+            {{ form.username.label }}<br>
+            {{ form.username(size=32) }}<br>
+            {% for error in form.username.errors %}
+                <span style="color: red;">[{{ error }}]</span><br>
+            {% endfor %}
+        </div>
+        <div>
+            {{ form.password.label }}<br>
+            {{ form.password(size=32) }}<br>
+            {% for error in form.password.errors %}
+                <span style="color: red;">[{{ error }}]</span><br>
+            {% endfor %}
+        </div>
+        <div>
+            {{ form.submit() }}
+        </div>
+    </form>
+    <p>Already have an account? <a href="{{ url_for('auth.login') }}">Login here</a></p>
+</body>
+</html>
+```
+
+### 3. `search.html`
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Search Files</title>
+</head>
+<body>
+    <h2>Search Files</h2>
+    <form method="POST">
+        {{ form.hidden_tag() }}
+        <div>
+            {{ form.function_id.label }}<br>
+            {{ form.function_id(size=32) }}<br>
+            {% for error in form.function_id.errors %}
+                <span style="color: red;">[{{ error }}]</span><br>
+            {% endfor %}
+        </div>
+        <div>
+            {{ form.work_directory.label }}<br>
+            {{ form.work_directory(size=32) }}<br>
+            {% for error in form.work_directory.errors %}
+                <span style="color: red;">[{{ error }}]</span><br>
+            {% endfor %}
+        </div>
+        <div>
+            {{ form.submit() }}
+        </div>
+    </form>
+
+    {% if files %}
+    <h3>Files Found:</h3>
+    <form method="POST" action="{{ url_for('search.upload') }}">
+        <ul>
+        {% for file in files %}
+            <li>
+                <input type="checkbox" name="files" value="{{ file }}">{{ file }}
+            </li>
+        {% endfor %}
+        </ul>
+        <button type="submit">Upload Selected Files</button>
+    </form>
+    {% endif %}
+</body>
+</html>
+```
+
+### 4. `results.html`
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Results</title>
+</head>
+<body>
+    <h2>Upload Results</h2>
+    {% if results %}
+        {% for file, data in results.items() %}
+            <h3>{{ file }}</h3>
+            <div>{{ data|safe }}</div>
+        {% endfor %}
+    {% else %}
+        <p>No results to display.</p>
+    {% endif %}
+</body>
+</html>
+```
+
+### 总结
+
+以上提供的 HTML 模板文件与之前的 Flask 项目代码配合使用，能够实现用户注册、登录、文件检索、选择并上传文件的功能。在项目部署时，将这些模板文件放在 `templates/` 目录中即可。
 为了优化并扩展现有的 Flask 项目，使其符合新的要求，我们需要做以下几件事：
 
 1. **登录后重定向到一个搜索页面** (`search.html`)，用户可以在该页面输入机能ID和工作目录。
