@@ -1,61 +1,61 @@
-你可以利用Python脚本来修改Java代码，具体步骤如下：
 
-1. 读取Java文件的内容。
-2. 查找并删除getter和setter方法以及它们上方的注释行。
-3. 将修改后的内容写回到文件中。
-
-以下是一个Python脚本的示例，展示了如何实现这一功能：
-
-```python
 import re
 
-def remove_get_set_methods(file_path):
+def remove_comments_above_get_set_methods(file_path):
     with open(file_path, 'r', encoding='utf-8') as file:
         lines = file.readlines()
 
     new_lines = []
     inside_method = False
+    i = 0
 
-    for i in range(len(lines)):
-        line = lines[i]
+    while i < len(lines):
+        line = lines[i].strip()
+
+        # 处理多行方法签名
+        if inside_method or re.match(r'^\s*public\s+', line):
+            method_signature = line
+            j = i + 1
+
+            # 拼接方法签名的各行
+            while j < len(lines) and not line.endswith('{'):
+                line = lines[j].strip()
+                method_signature += " " + line
+                j += 1
+
+            # 检查方法是否是getter或setter
+            if re.match(r'^\s*public\s+\w+\s+get\w+\s*\(\s*\)\s*\{', method_signature) or \
+               re.match(r'^\s*public\s+void\s+set\w+\s*\(\s*\w+\s+\w+\)\s*\{', method_signature):
+                inside_method = True
+
+                # 删除与此方法相关的注释
+                k = i - 1
+                while k >= 0:
+                    if re.match(r'^\s*\*/\s*$', lines[k]):  # 找到注释块的结束
+                        while k >= 0 and not re.match(r'^\s*/\*\*\s*$', lines[k]):  # 找到注释块的开始
+                            k -= 1
+                        k -= 1  # 再跳过注释块的开头行
+                        i = k + 1  # 从注释块的行之后开始
+                        break
+                    elif not re.match(r'^\s*\*\s*', lines[k]):  # 不是注释行
+                        break
+                    k -= 1
+                
+                # 跳过方法声明和内容，直到找到方法结束
+                while i < len(lines) and not re.match(r'.*\}\s*$', lines[i]):
+                    i += 1
+                i += 1  # 跳过方法结束的那一行
+                inside_method = False
+                continue
         
-        # Check if the line is a comment line (assuming the comment lines start with '//' or '/**')
-        if re.match(r'^\s*//', line) or re.match(r'^\s*/\*\*', line):
-            continue  # Skip the comment lines
-        
-        # Check if the line is the start of a getter or setter method
-        if re.match(r'^\s*public\s+\w+\s+get\w+\(\)\s*\{', line) or \
-           re.match(r'^\s*public\s+void\s+set\w+\(\w+\s+\w+\)\s*\{', line):
-            inside_method = True
-            continue  # Skip the method signature line
-        
-        # If we are inside a getter/setter method, skip lines until we find the end of the method
-        if inside_method:
-            if '}' in line:
-                inside_method = False  # End of method
-            continue  # Skip lines inside the method
-        
-        # Add the line to the new lines if it's not part of a getter/setter
-        new_lines.append(line)
-    
-    # Write the modified lines back to the file
+        # 保留当前行（不属于被删除的方法）
+        new_lines.append(lines[i])
+        i += 1
+
+    # 将修改后的内容写回文件
     with open(file_path, 'w', encoding='utf-8') as file:
         file.writelines(new_lines)
 
-# 使用这个函数删除Java文件中的get/set方法
-file_path = 'YourJavaFile.java'  # 替换成你的Java文件路径
-remove_get_set_methods(file_path)
-```
-
-### 说明
-- `remove_get_set_methods`函数接收Java文件的路径，并执行以下操作：
-  1. 打开并读取文件内容。
-  2. 逐行检查内容，识别getter和setter方法以及其上方的注释。
-  3. 从新文件内容中排除这些方法及其注释。
-  4. 将修改后的内容写回文件。
-
-### 注意事项
-- 该脚本假设getter方法使用模式 `public [type] get[Name]()`，setter方法使用模式 `public void set[Name]([type] [param])`。如方法名或签名有所不同，需调整正则表达式。
-- 此脚本处理简化了的情况，可能需要根据实际Java代码的复杂性进行进一步调整，如方法内多行代码、嵌套注释等情况。
-
-将上述脚本保存在Python文件中并运行即可。
+# 使用这个函数删除Java文件中的getter/setter方法上方的注释
+file_path = 'YourJavaFile.java'  # 替换为你的Java文件路径
+remove_comments_above_get_set_methods(file_path)
