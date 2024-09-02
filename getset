@@ -1,4 +1,88 @@
+为了确保删除所有类型的getter和setter方法上方的注释，包括多行注释块（`/** ... */` 和 `/* ... */`），并正确处理方法签名和方法体不在一行的情况，我们需要更详细地处理这些问题。以下是改进后的Python脚本：
 
+### 主要功能：
+1. **识别所有类型的getter和setter方法**：包括多行方法签名。
+2. **删除与getter和setter方法相关的所有注释块**：包括 `/** ... */` 和 `/* ... */` 注释块。
+3. **跳过方法体中的注释**：只删除方法上方的注释，不影响方法体内的注释。
+
+### 改进后的Python脚本：
+
+```python
+import re
+
+def remove_comments_above_get_set_methods(file_path):
+    with open(file_path, 'r', encoding='utf-8') as file:
+        lines = file.readlines()
+
+    new_lines = []
+    inside_method = False
+    i = 0
+
+    while i < len(lines):
+        line = lines[i].strip()
+
+        # 处理多行方法签名
+        if inside_method or re.match(r'^\s*public\s+', line):
+            method_signature = line
+            j = i + 1
+
+            # 拼接方法签名的各行
+            while j < len(lines) and not re.match(r'.*\{\s*$', lines[j].strip()):
+                line = lines[j].strip()
+                method_signature += " " + line
+                j += 1
+
+            # 检查是否为getter或setter方法
+            if re.match(r'^\s*public\s+\w+\s+get\w+\s*\(.*\)\s*\{', method_signature) or \
+               re.match(r'^\s*public\s+void\s+set\w+\s*\(.*\)\s*\{', method_signature):
+                inside_method = True
+
+                # 删除与此方法相关的注释
+                k = i - 1
+                while k >= 0:
+                    if re.match(r'^\s*\*/\s*$', lines[k].strip()):  # 找到注释块的结束
+                        while k >= 0 and not re.match(r'^\s*/\*{1,2}\s*$', lines[k].strip()):  # 找到注释块的开始
+                            k -= 1
+                        k -= 1  # 跳过注释块的开头行
+                        i = k + 1  # 从注释块的行之后开始
+                        break
+                    elif not re.match(r'^\s*\*\s*', lines[k].strip()) and not re.match(r'^\s*//', lines[k].strip()):  # 不是注释行
+                        break
+                    k -= 1
+                
+                # 跳过方法声明和内容，直到找到方法结束
+                while i < len(lines) and not re.match(r'.*\}\s*$', lines[i].strip()):
+                    i += 1
+                i += 1  # 跳过方法结束的那一行
+                inside_method = False
+                continue
+
+        # 保留当前行（不属于被删除的方法）
+        new_lines.append(lines[i])
+        i += 1
+
+    # 将修改后的内容写回文件
+    with open(file_path, 'w', encoding='utf-8') as file:
+        file.writelines(new_lines)
+
+# 使用这个函数删除Java文件中的getter/setter方法上方的注释
+file_path = 'YourJavaFile.java'  # 替换为你的Java文件路径
+remove_comments_above_get_set_methods(file_path)
+```
+
+### 详细解释：
+
+1. **多行方法签名处理**：脚本会拼接连续的行来处理多行方法签名，以便正确识别getter和setter方法（例如`public void setSession(Map<String, Object> session) {...}`）。
+
+2. **注释块处理**：脚本现在能够处理 `/** ... */` 和 `/* ... */` 两种形式的注释块，确保这些注释块如果出现在getter和setter方法上方，都会被删除。
+
+3. **方法体中的注释保留**：脚本只删除与getter和setter方法直接相关的注释块，并且保留方法体内部的注释。
+
+### 使用说明：
+- 替换 `file_path` 为你的Java文件路径。
+- 运行Python脚本，它将删除所有getter和setter方法上方的注释（无论这些注释是单行还是多行，使用哪种注释格式）。
+
+运行这个脚本后，你应该能够删除所有符合条件的注释，而不会影响代码中的其他注释。
 import re
 
 def remove_comments_above_get_set_methods(file_path):
