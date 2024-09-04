@@ -1,0 +1,135 @@
+好的，我会将解析逻辑封装成一个共通方法，该方法接受 Java 源代码作为输入，并返回解析结果的字符串列表。每一项字符串表示解析出的内容。这样，你可以方便地处理解析结果。
+
+下面是修改后的代码：
+
+```python
+import javalang
+
+def parse_java_code(java_code):
+    # 解析 Java 代码
+    tree = javalang.parse.parse(java_code)
+    
+    results = []
+    
+    # 遍历 AST 树并提取信息
+    for path, node in tree:
+        if isinstance(node, javalang.tree.PackageDeclaration):
+            results.append(f"Package: {node.name}")
+        
+        if isinstance(node, javalang.tree.Import):
+            results.append(f"Import: {node.path}")
+
+        if isinstance(node, javalang.tree.ClassDeclaration):
+            results.append(f"\nClass: {node.name}")
+            results.append(f"  Extends: {node.extends.name if node.extends else 'None'}")
+            results.append(f"  Implements: {[impl.name for impl in node.implements]}")
+
+        if isinstance(node, javalang.tree.InterfaceDeclaration):
+            results.append(f"\nInterface: {node.name}")
+
+        if isinstance(node, javalang.tree.FieldDeclaration):
+            for decl in node.declarators:
+                results.append(f"  Field: {decl.name} Type: {node.type.name}")
+
+        if isinstance(node, javalang.tree.MethodDeclaration):
+            params = ', '.join([f"{p.type.name} {p.name}" for p in node.parameters])
+            results.append(f"\n  Method: {node.name}({params})")
+            results.append(f"    Return Type: {node.return_type.name if node.return_type else 'void'}")
+            results.append(f"    Annotations: {[annotation.name for annotation in node.annotations]}")
+
+        if isinstance(node, javalang.tree.ConstructorDeclaration):
+            params = ', '.join([f"{p.type.name} {p.name}" for p in node.parameters])
+            results.append(f"\n  Constructor: {node.name}({params})")
+
+        if isinstance(node, javalang.tree.TryStatement):
+            results.append(f"  Try-Catch block with resources: {node.resources}")
+        
+        if isinstance(node, javalang.tree.LambdaExpression):
+            results.append(f"  Lambda Expression: {node.body}")
+        
+        if isinstance(node, javalang.tree.ClassCreator):
+            results.append(f"  Anonymous Class Creation: {node.type.name}")
+        
+        if isinstance(node, javalang.tree.InnerClassCreator):
+            results.append(f"  Inner Class Creation: {node.type.name}")
+
+        if isinstance(node, javalang.tree.FormalParameter):
+            results.append(f"  Parameter: {node.type.name} {node.name}")
+
+        if isinstance(node, javalang.tree.Statement):
+            results.append(f"  Statement: {type(node).__name__}")
+
+        if isinstance(node, javalang.tree.Annotation):
+            results.append(f"  Annotation: {node.name}")
+    
+    return results
+
+# 示例 Java 代码
+java_code = """
+package com.example;
+
+import java.util.List;
+import java.util.ArrayList;
+
+public class ExampleClass<T> extends BaseClass implements ExampleInterface {
+
+    private int number;
+    protected String text;
+    @Deprecated
+    public List<T> items;
+
+    public ExampleClass(int number, String text) {
+        this.number = number;
+        this.text = text;
+        items = new ArrayList<>();
+    }
+
+    public void addItem(T item) {
+        items.add(item);
+    }
+
+    @Override
+    public void doSomething() {
+        try {
+            System.out.println("Doing something...");
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public static void main(String[] args) {
+        ExampleClass<String> example = new ExampleClass<>(42, "Hello");
+        example.addItem("Item1");
+        example.doSomething();
+
+        Runnable r = () -> System.out.println("Lambda expression");
+        r.run();
+    }
+
+    class InnerClass {
+        public void innerMethod() {
+            System.out.println("Inner class method");
+        }
+    }
+}
+"""
+
+# 调用解析方法并获取结果
+parsed_results = parse_java_code(java_code)
+
+# 打印结果
+for line in parsed_results:
+    print(line)
+```
+
+### 代码说明：
+
+- **`parse_java_code` 函数**：这个函数封装了之前的解析逻辑。它接收 Java 源代码字符串作为输入，返回一个包含解析结果的字符串列表 `results`。
+  
+- **`results` 列表**：列表中的每个字符串代表解析出的某一部分代码信息，最后将这个列表返回。
+
+- **调用**：你可以传入任意 Java 代码字符串，调用 `parse_java_code` 函数来解析它。返回的 `parsed_results` 是一个字符串列表，你可以根据需要处理或输出这些解析结果。
+
+### 输出示例：
+
+这个方法返回的 `parsed_results` 列表中的内容与之前的输出类似，每一项都是一个解析后的字符串。你可以按照需要处理这些结果，例如打印输出、写入文件或者进一步分析。
