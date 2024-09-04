@@ -1,0 +1,183 @@
+JavaParser 是一个功能强大的 Java 库，用于解析、分析、修改和生成 Java 代码。它通过解析 Java 源代码生成抽象语法树（AST），并提供了修改和生成代码的能力。
+
+### JavaParser 的基本用法
+
+#### 1. **引入 JavaParser 依赖**
+
+首先，在你的项目中引入 JavaParser 库。如果你使用的是 Maven，可以在 `pom.xml` 文件中添加以下依赖：
+
+```xml
+<dependencies>
+    <dependency>
+        <groupId>com.github.javaparser</groupId>
+        <artifactId>javaparser-core</artifactId>
+        <version>3.25.4</version>
+    </dependency>
+</dependencies>
+```
+
+如果你使用的是 Gradle，可以在 `build.gradle` 文件中添加以下依赖：
+
+```gradle
+dependencies {
+    implementation 'com.github.javaparser:javaparser-core:3.25.4'
+}
+```
+
+#### 2. **解析 Java 代码**
+
+解析 Java 代码是 JavaParser 的主要功能之一。你可以将 Java 源代码文件或字符串解析为 `CompilationUnit` 对象，这个对象表示一个完整的 Java 文件。
+
+```java
+import com.github.javaparser.JavaParser;
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+
+import java.io.File;
+import java.io.FileInputStream;
+
+public class JavaParserExample {
+    public static void main(String[] args) throws Exception {
+        // 创建一个 JavaParser 实例
+        JavaParser parser = new JavaParser();
+
+        // 从文件解析
+        FileInputStream in = new FileInputStream(new File("src/main/java/com/example/ExampleClass.java"));
+        CompilationUnit cu = parser.parse(in).getResult().get();
+
+        // 或者直接从字符串解析
+        // CompilationUnit cu = parser.parse("public class Test { }").getResult().get();
+
+        // 查找类定义
+        cu.findAll(ClassOrInterfaceDeclaration.class).forEach(classDecl -> {
+            System.out.println("Class: " + classDecl.getName());
+        });
+    }
+}
+```
+
+#### 3. **修改 AST（抽象语法树）**
+
+解析后，你可以使用 JavaParser 提供的 API 对代码进行修改。以下示例展示了如何为类添加注解、为字段添加注解、向方法添加参数等操作：
+
+```java
+import com.github.javaparser.JavaParser;
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.Modifier;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.FieldDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.expr.MarkerAnnotationExpr;
+import com.github.javaparser.ast.type.ClassOrInterfaceType;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileWriter;
+
+public class JavaParserModifyExample {
+    public static void main(String[] args) throws Exception {
+        // 解析 Java 文件
+        FileInputStream in = new FileInputStream(new File("src/main/java/com/example/ExampleClass.java"));
+        CompilationUnit cu = new JavaParser().parse(in).getResult().get();
+
+        // 查找目标类
+        ClassOrInterfaceDeclaration targetClass = cu.getClassByName("ExampleClass").get();
+
+        // 1. 为类添加注解
+        targetClass.addAnnotation(new MarkerAnnotationExpr("Controller"));
+
+        // 2. 为字段添加注解
+        for (FieldDeclaration field : targetClass.getFields()) {
+            if (field.getVariables().get(0).getNameAsString().equals("text")) {
+                field.addAnnotation(new MarkerAnnotationExpr("Autowired"));
+            }
+        }
+
+        // 3. 向方法添加参数
+        for (MethodDeclaration method : targetClass.getMethods()) {
+            if (method.getNameAsString().equals("addItem")) {
+                method.addParameter(new ClassOrInterfaceType(null, "String"), "newParam");
+            }
+        }
+
+        // 将修改后的代码写回文件
+        FileWriter fileWriter = new FileWriter("src/main/java/com/example/ExampleClassModified.java");
+        fileWriter.write(cu.toString());
+        fileWriter.close();
+
+        System.out.println("Java file has been modified and saved as ExampleClassModified.java");
+    }
+}
+```
+
+#### 4. **生成修改后的 Java 代码**
+
+上面示例的最后部分展示了如何将修改后的 `CompilationUnit` 对象保存为一个新的 Java 文件。
+
+### 详细步骤解释
+
+1. **解析 Java 代码**：使用 `JavaParser` 解析 Java 文件，生成一个 `CompilationUnit` 对象。这个对象代表整个 Java 文件的抽象语法树。
+
+2. **查找类、字段和方法**：
+   - 使用 `getClassByName` 方法找到指定的类。
+   - 使用 `getFields` 方法遍历类中的字段。
+   - 使用 `getMethods` 方法遍历类中的方法。
+
+3. **修改 AST**：
+   - **添加注解**：使用 `addAnnotation` 方法为类或字段添加注解。
+   - **添加参数**：使用 `addParameter` 方法向方法添加参数。
+
+4. **保存修改后的代码**：使用 `FileWriter` 将修改后的 `CompilationUnit` 对象保存为新的 Java 文件。
+
+### 5. **替换方法体内容**
+
+如果你想要替换某个方法的内容，可以直接操作方法体的 AST 节点。
+
+```java
+import com.github.javaparser.ast.stmt.BlockStmt;
+import com.github.javaparser.ast.stmt.Statement;
+import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.NameExpr;
+
+import java.util.Arrays;
+
+public class JavaParserReplaceMethodBodyExample {
+    public static void main(String[] args) throws Exception {
+        // 解析 Java 文件
+        FileInputStream in = new FileInputStream(new File("src/main/java/com/example/ExampleClass.java"));
+        CompilationUnit cu = new JavaParser().parse(in).getResult().get();
+
+        // 查找目标类和方法
+        ClassOrInterfaceDeclaration targetClass = cu.getClassByName("ExampleClass").get();
+        MethodDeclaration targetMethod = targetClass.getMethodsByName("doSomething").get(0);
+
+        // 创建新的方法体
+        BlockStmt newBody = new BlockStmt();
+        Statement newStatement1 = new MethodCallExpr(new NameExpr("System.out"), "println", 
+                new NodeList<>(new NameExpr("\"New method body!\"")));
+        Statement newStatement2 = new MethodCallExpr(new NameExpr("System.out"), "println", 
+                new NodeList<>(new NameExpr("\"Another line of code\"")));
+        
+        newBody.addStatement(newStatement1);
+        newBody.addStatement(newStatement2);
+
+        // 替换方法体
+        targetMethod.setBody(newBody);
+
+        // 保存修改后的代码
+        FileWriter fileWriter = new FileWriter("src/main/java/com/example/ExampleClassModified.java");
+        fileWriter.write(cu.toString());
+        fileWriter.close();
+
+        System.out.println("Java file has been modified and saved as ExampleClassModified.java");
+    }
+}
+```
+
+### 输出结果
+
+最终，`ExampleClassModified.java` 文件将包含你所做的所有修改，包括添加的注解、参数和替换的方法体内容。
+
+### 总结
+
+JavaParser 是一个非常强大的工具，它不仅能够解析和分析 Java 代码，还能进行修改和生成新的代码。通过结合使用解析、修改 AST 和生成代码的功能，你可以轻松地实现各种复杂的代码变更需求。
