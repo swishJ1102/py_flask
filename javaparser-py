@@ -1,0 +1,204 @@
+为了实现根据配置文件规则批量修改工程中的 Java 文件，你可以创建一个工具，该工具会解析配置文件，执行增删改操作，并且在必要时自动添加相应的 `import` 语句。
+
+### 1. **项目结构**
+
+假设你的项目结构如下：
+
+```
+/my-java-project
+│
+├── /src
+│   ├── /main
+│   │   └── /java
+│   │       └── /com
+│   │           └── /example
+│   │               └── ExampleClass.java
+│   │
+│   └── /test
+│
+└── config.json
+└── modify.py
+```
+
+- `src/main/java/com/example/ExampleClass.java`：需要修改的 Java 文件。
+- `config.json`：用于定义增删改规则的配置文件。
+- `modify.py`：用来执行批量修改的 Python 脚本。
+
+### 2. **配置文件规则 (config.json)**
+
+假设配置文件 `config.json` 包含以下内容：
+
+```json
+{
+  "modifications": [
+    {
+      "type": "add_annotation",
+      "target": "class",
+      "class_name": "ExampleClass",
+      "annotation": "Controller",
+      "import": "org.springframework.stereotype.Controller"
+    },
+    {
+      "type": "add_annotation",
+      "target": "field",
+      "class_name": "ExampleClass",
+      "field_name": "text",
+      "annotation": "Autowired",
+      "import": "org.springframework.beans.factory.annotation.Autowired"
+    },
+    {
+      "type": "add_method_parameter",
+      "class_name": "ExampleClass",
+      "method_name": "addItem",
+      "param_type": "String",
+      "param_name": "newParam"
+    },
+    {
+      "type": "replace_method_body",
+      "class_name": "ExampleClass",
+      "method_name": "doSomething",
+      "new_body": [
+        "System.out.println(\"This is the new method body.\");",
+        "System.out.println(\"Another line of code.\");"
+      ]
+    }
+  ]
+}
+```
+
+### 3. **批量修改的 Python 脚本 (modify.py)**
+
+下面是一个示例 Python 脚本，使用 JavaParser 和上述的配置文件来批量修改 Java 文件。
+
+```python
+import os
+import json
+import com.github.javaparser.JavaParser;
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.Modifier;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.FieldDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.expr.MarkerAnnotationExpr;
+import com.github.javaparser.ast.type.ClassOrInterfaceType;
+
+from java.io import File, FileInputStream, FileWriter
+
+# 解析配置文件
+def load_config(config_file):
+    with open(config_file, 'r') as file:
+        return json.load(file)
+
+# 添加 import 语句
+def add_import(cu, import_statement):
+    imports = cu.getImports()
+    if not any(imp.getNameAsString() == import_statement for imp in imports):
+        cu.addImport(import_statement)
+
+# 根据配置执行批量修改
+def apply_modifications(config, base_path):
+    for modification in config['modifications']:
+        java_file_path = os.path.join(base_path, f"{modification['class_name']}.java")
+        cu = parse_java_file(java_file_path)
+
+        if modification['type'] == 'add_annotation':
+            apply_annotation(cu, modification)
+        elif modification['type'] == 'add_method_parameter':
+            apply_method_parameter(cu, modification)
+        elif modification['type'] == 'replace_method_body':
+            apply_method_body_replacement(cu, modification)
+
+        save_java_file(cu, java_file_path)
+
+# 解析 Java 文件
+def parse_java_file(file_path):
+    with FileInputStream(File(file_path)) as in_stream:
+        return JavaParser().parse(in_stream).getResult().get()
+
+# 保存修改后的 Java 文件
+def save_java_file(cu, file_path):
+    with FileWriter(file_path) as file_writer:
+        file_writer.write(cu.toString())
+
+# 为类或字段添加注解
+def apply_annotation(cu, modification):
+    class_name = modification['class_name']
+    annotation = modification['annotation']
+    annotation_import = modification['import']
+    target = modification['target']
+
+    add_import(cu, annotation_import)
+
+    if target == 'class':
+        class_decl = cu.getClassByName(class_name).get()
+        class_decl.addAnnotation(MarkerAnnotationExpr(annotation))
+    elif target == 'field':
+        field_name = modification['field_name']
+        class_decl = cu.getClassByName(class_name).get()
+        for field in class_decl.getFields():
+            if field.getVariables().get(0).getNameAsString() == field_name:
+                field.addAnnotation(MarkerAnnotationExpr(annotation))
+
+# 为方法添加参数
+def apply_method_parameter(cu, modification):
+    class_name = modification['class_name']
+    method_name = modification['method_name']
+    param_type = modification['param_type']
+    param_name = modification['param_name']
+
+    class_decl = cu.getClassByName(class_name).get()
+    for method in class_decl.getMethods():
+        if method.getNameAsString() == method_name:
+            method.addParameter(ClassOrInterfaceType(None, param_type), param_name)
+
+# 替换方法体内容
+def apply_method_body_replacement(cu, modification):
+    class_name = modification['class_name']
+    method_name = modification['method_name']
+    new_body = modification['new_body']
+
+    class_decl = cu.getClassByName(class_name).get()
+    method = class_decl.getMethodsByName(method_name).get(0)
+
+    # 构建新的方法体
+    block_stmt = BlockStmt()
+    for line in new_body:
+        block_stmt.addStatement(line)
+    
+    method.setBody(block_stmt)
+
+# 主程序入口
+if __name__ == "__main__":
+    config = load_config("config.json")
+    project_src_path = "./src/main/java/com/example"
+    
+    apply_modifications(config, project_src_path)
+    print("Modifications applied successfully.")
+```
+
+### 4. **执行批量修改**
+
+你可以通过运行 `modify.py` 脚本来应用配置文件中的所有修改规则：
+
+```bash
+python modify.py
+```
+
+### 5. **代码解释**
+
+1. **加载配置文件 (`load_config`)**：
+   - 读取并解析 `config.json`，以确定需要进行的增删改操作。
+
+2. **解析和修改 Java 文件 (`apply_modifications`)**：
+   - 遍历所有配置，读取对应的 Java 文件，应用修改并保存。
+
+3. **修改 AST (`apply_annotation`, `apply_method_parameter`, `apply_method_body_replacement`)**：
+   - 根据配置文件的内容，对 AST 进行相应的修改。
+   - 包括为类或字段添加注解、为方法添加参数以及替换方法体内容。
+
+4. **保存修改后的代码 (`save_java_file`)**：
+   - 将修改后的 `CompilationUnit` 对象保存回文件中。
+
+### 总结
+
+通过这种方式，你可以批量修改 Java 项目中的文件，并根据配置文件灵活定义修改规则。这种方法能够根据配置文件中的规则，自动进行增删改操作，并且可以自动处理注解的 `import` 语句，适用于多种复杂的场景。
