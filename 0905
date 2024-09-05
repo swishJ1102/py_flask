@@ -1,3 +1,328 @@
+为了在 `class` 中动态添加一个 `findForward` 方法，我们需要扩展 XML 配置文件和 `JavaFileModifier` 类，以支持动态方法的添加。以下是步骤说明：
+
+### 1. XML 配置文件修改
+
+在 `rules.xml` 中，我们可以为类添加规则来动态插入一个 `findForward` 方法。你可以在 `Rule` 中添加一个 `method` 节点来定义方法添加的规则。
+
+#### 示例 `rules.xml`：
+
+```xml
+<rule>
+    <filePattern>.*Controller\\.java$</filePattern>
+    <classAnnotation>Controller</classAnnotation>
+    <imports>org.springframework.stereotype.Controller</imports>
+    
+    <!-- 定义动态添加的方法 -->
+    <methods>
+        <method>
+            <name>findForward</name>
+            <returnType>String</returnType>
+            <parameters>
+                <parameter>
+                    <type>String</type>
+                    <name>forwardName</name>
+                </parameter>
+            </parameters>
+            <body>
+                return forwardName + "Page";
+            </body>
+        </method>
+    </methods>
+</rule>
+```
+
+### 2. 修改 `Rule` 类
+
+在 `Rule` 类中，我们需要支持方法规则。增加一个 `Method` 类来存储方法名、返回类型、参数和方法体等信息。
+
+#### `Rule.java`
+
+```java
+import java.util.List;
+
+public class Rule {
+    private String filePattern;
+    private String classAnnotation;
+    private List<String> imports;
+    private List<Method> methods;
+
+    // Getters and Setters
+
+    public String getFilePattern() {
+        return filePattern;
+    }
+
+    public void setFilePattern(String filePattern) {
+        this.filePattern = filePattern;
+    }
+
+    public String getClassAnnotation() {
+        return classAnnotation;
+    }
+
+    public void setClassAnnotation(String classAnnotation) {
+        this.classAnnotation = classAnnotation;
+    }
+
+    public List<String> getImports() {
+        return imports;
+    }
+
+    public void setImports(List<String> imports) {
+        this.imports = imports;
+    }
+
+    public List<Method> getMethods() {
+        return methods;
+    }
+
+    public void setMethods(List<Method> methods) {
+        this.methods = methods;
+    }
+}
+```
+
+#### `Method.java`
+
+```java
+import java.util.List;
+
+public class Method {
+    private String name;
+    private String returnType;
+    private List<Parameter> parameters;
+    private String body;
+
+    // Getters and Setters
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public String getReturnType() {
+        return returnType;
+    }
+
+    public void setReturnType(String returnType) {
+        this.returnType = returnType;
+    }
+
+    public List<Parameter> getParameters() {
+        return parameters;
+    }
+
+    public void setParameters(List<Parameter> parameters) {
+        this.parameters = parameters;
+    }
+
+    public String getBody() {
+        return body;
+    }
+
+    public void setBody(String body) {
+        this.body = body;
+    }
+}
+```
+
+#### `Parameter.java`
+
+```java
+public class Parameter {
+    private String type;
+    private String name;
+
+    // Getters and Setters
+
+    public String getType() {
+        return type;
+    }
+
+    public void setType(String type) {
+        this.type = type;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+}
+```
+
+### 3. 修改 `JavaFileModifier`
+
+在 `JavaFileModifier` 中，添加对 `methods` 节点的解析，动态生成方法并添加到类中。
+
+#### 修改 `JavaFileModifier.java`
+
+```java
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.Parameter;
+import com.github.javaparser.ast.stmt.BlockStmt;
+import com.github.javaparser.ast.stmt.ReturnStmt;
+import com.github.javaparser.JavaParser;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.List;
+
+public class JavaFileModifier {
+    private JavaParser javaParser = new JavaParser();
+
+    public void modifyFile(File file, List<Rule> rules) throws IOException {
+        CompilationUnit cu = javaParser.parse(file).getResult().orElse(null);
+        if (cu == null) {
+            System.out.println("Error parsing file: " + file.getName());
+            return;
+        }
+
+        // 遍历所有规则
+        for (Rule rule : rules) {
+            if (file.getName().matches(rule.getFilePattern())) {
+
+                // 查找类声明
+                cu.findFirst(ClassOrInterfaceDeclaration.class).ifPresent(clazz -> {
+                    // 添加类注解
+                    if (rule.getClassAnnotation() != null) {
+                        clazz.addAnnotation(rule.getClassAnnotation());
+                    }
+
+                    // 添加导入
+                    for (String importStr : rule.getImports()) {
+                        cu.addImport(importStr);
+                    }
+
+                    // 添加方法
+                    for (Method method : rule.getMethods()) {
+                        addMethodToClass(clazz, method);
+                    }
+                });
+            }
+        }
+
+        // 将修改后的代码写回文件
+        Files.write(Paths.get(file.getAbsolutePath()), cu.toString().getBytes());
+    }
+
+    // 动态添加方法
+    private void addMethodToClass(ClassOrInterfaceDeclaration clazz, Method method) {
+        // 创建方法
+        MethodDeclaration methodDecl = clazz.addMethod(method.getName());
+        methodDecl.setType(method.getReturnType());
+
+        // 添加参数
+        for (Parameter param : method.getParameters()) {
+            com.github.javaparser.ast.body.Parameter jpParameter = new com.github.javaparser.ast.body.Parameter(
+                javaParser.parseType(param.getType()).getResult().get(), param.getName());
+            methodDecl.addParameter(jpParameter);
+        }
+
+        // 创建方法体
+        BlockStmt body = new BlockStmt();
+        ReturnStmt returnStmt = new ReturnStmt(method.getBody());
+        body.addStatement(returnStmt);
+        methodDecl.setBody(body);
+    }
+}
+```
+
+### 4. 修改 `XMLRuleParser` 来支持方法解析
+
+在解析 XML 规则时，需要解析 `<methods>` 节点，并将其转换为 `Method` 对象。
+
+#### 修改 `XMLRuleParser.java`
+
+```java
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
+
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
+
+public class XMLRuleParser {
+
+    public List<Rule> parseRules(String xmlFilePath) throws Exception {
+        List<Rule> rules = new ArrayList<>();
+
+        File xmlFile = new File(xmlFilePath);
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        DocumentBuilder builder = factory.newDocumentBuilder();
+        Document doc = builder.parse(xmlFile);
+
+        NodeList ruleNodes = doc.getElementsByTagName("rule");
+
+        for (int i = 0; i < ruleNodes.getLength(); i++) {
+            Element ruleElement = (Element) ruleNodes.item(i);
+            Rule rule = new Rule();
+
+            rule.setFilePattern(ruleElement.getElementsByTagName("filePattern").item(0).getTextContent());
+            rule.setClassAnnotation(ruleElement.getElementsByTagName("classAnnotation").item(0).getTextContent());
+
+            // 解析 imports
+            NodeList importNodes = ruleElement.getElementsByTagName("imports");
+            List<String> imports = new ArrayList<>();
+            for (int j = 0; j < importNodes.getLength(); j++) {
+                imports.add(importNodes.item(j).getTextContent());
+            }
+            rule.setImports(imports);
+
+            // 解析 methods
+            NodeList methodNodes = ruleElement.getElementsByTagName("method");
+            List<Method> methods = new ArrayList<>();
+            for (int j = 0; j < methodNodes.getLength(); j++) {
+                Element methodElement = (Element) methodNodes.item(j);
+                Method method = new Method();
+                method.setName(methodElement.getElementsByTagName("name").item(0).getTextContent());
+                method.setReturnType(methodElement.getElementsByTagName("returnType").item(0).getTextContent());
+
+                // 解析方法参数
+                NodeList parameterNodes = methodElement.getElementsByTagName("parameter");
+                List<Parameter> parameters = new ArrayList<>();
+                for (int k = 0; k < parameterNodes.getLength(); k++) {
+                    Element parameterElement = (Element) parameterNodes.item(k);
+                    Parameter param = new Parameter();
+                    param.setType(parameterElement.getElementsByTagName("type").item(0).getTextContent());
+                    param.setName(parameterElement.getElementsByTagName("name").item(0).getTextContent());
+                    parameters.add(param);
+                }
+                method.setParameters(parameters);
+
+                // 解析方法体
+                method.setBody(methodElement.getElementsByTagName("body").item(0).getTextContent());
+                methods.add(method);
+            }
+            rule.setMethods(methods);
+
+            rules.add(rule);
+        }
+
+        return rules;
+    }
+}
+```
+
+### 总结
+
+- **XML 配置文件**：通过 `<method>` 节点定义方法的添加规则，包括方法名、返回类型、参数和方法体。
+- **JavaFileModifier**：扩展了 `JavaFileModifier`，支持根据规则动态添加方法。
+- **XMLRuleParser**：修改了 XML 解析逻辑，支持方法规则的解析。
+
+
 理解了！如果方法的参数是固定的，但方法体内容是根据某些条件动态生成的，那么可以在代码中为这些特殊情况编写逻辑。在这种情况下，你需要在 `JavaFileModifier` 中写一个逻辑，根据不同的规则或条件动态生成方法体。
 
 具体来说，你可以在 `JavaFileModifier` 的 `addMethodToClass` 方法中为每种规则编写特定的逻辑，来动态生成方法体的内容。
