@@ -1,3 +1,156 @@
+为了满足**删除实现**和**修改继承**的需求，我们可以通过解析和修改 Java 类声明部分的 `implements` 和 `extends` 部分来完成这些操作。
+
+### 需求分析
+
+1. **删除实现的接口**：需要找到 Java 类声明中 `implements` 的接口，并根据规则中的配置删除指定的接口。
+2. **修改继承的父类**：找到类继承的父类（`extends` 部分），并替换为新的父类。
+
+### 具体步骤
+
+#### 1. 配置文件 (`rules.xml`) 设计
+
+为了支持删除实现的接口和修改继承，我们可以在 `rules.xml` 中添加相应的字段：
+
+- `removeInterfaces`：用来列出要删除的接口。
+- `newParentClass`：用来指定新的父类。
+
+```xml
+<rules>
+    <rule>
+        <filePattern>.*MyClass\.java$</filePattern>
+        <newParentClass>NewParentClass</newParentClass> <!-- 指定新的父类 -->
+        <removeInterfaces>
+            <interface>OldInterface1</interface> <!-- 需要删除的接口 -->
+            <interface>OldInterface2</interface>
+        </removeInterfaces>
+    </rule>
+</rules>
+```
+
+#### 2. 更新 `JavaFileModifier` 类
+
+我们需要修改 `JavaFileModifier`，使其能够根据规则删除接口和修改继承类。
+
+```java
+import com.github.javaparser.*;
+import com.github.javaparser.ast.*;
+import com.github.javaparser.ast.body.*;
+import com.github.javaparser.ast.type.*;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.util.List;
+import java.util.Optional;
+
+public class JavaFileModifier {
+
+    public void modifyFile(File file, List<Rule> rules) throws Exception {
+        String fileName = file.getName();
+        CompilationUnit cu = StaticJavaParser.parse(file);
+
+        // 确定适用的规则
+        Optional<Rule> matchingRule = rules.stream()
+            .filter(rule -> fileName.matches(rule.getFilePattern()))
+            .findFirst();
+
+        if (matchingRule.isPresent()) {
+            Rule rule = matchingRule.get();
+            modifyInheritanceAndImplementations(cu, rule);
+        }
+
+        // 保存修改后的文件
+        try (FileWriter writer = new FileWriter(file)) {
+            writer.write(cu.toString());
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to write file: " + file.getAbsolutePath(), e);
+        }
+    }
+
+    // 修改继承和实现
+    private void modifyInheritanceAndImplementations(CompilationUnit cu, Rule rule) {
+        cu.findFirst(ClassOrInterfaceDeclaration.class).ifPresent(classDeclaration -> {
+            // 修改继承父类
+            if (rule.getNewParentClass() != null) {
+                classDeclaration.getExtendedTypes().clear(); // 移除当前继承的父类
+                classDeclaration.addExtendedType(rule.getNewParentClass()); // 添加新父类
+            }
+
+            // 删除指定的实现接口
+            if (rule.getRemoveInterfaces() != null) {
+                rule.getRemoveInterfaces().forEach(interfaceName -> {
+                    classDeclaration.getImplementedTypes().removeIf(type -> 
+                        type.getNameAsString().equals(interfaceName));
+                });
+            }
+        });
+    }
+}
+```
+
+### 3. 更新 `Rule` 类
+
+`Rule` 类需要增加 `newParentClass` 和 `removeInterfaces` 字段，以便支持删除实现和修改继承。
+
+```java
+import java.util.List;
+
+public class Rule {
+    private String filePattern;
+    private String newParentClass; // 新的父类
+    private List<String> removeInterfaces; // 需要删除的接口列表
+
+    // Getters and Setters
+    public String getFilePattern() { return filePattern; }
+    public void setFilePattern(String filePattern) { this.filePattern = filePattern; }
+
+    public String getNewParentClass() { return newParentClass; }
+    public void setNewParentClass(String newParentClass) { this.newParentClass = newParentClass; }
+
+    public List<String> getRemoveInterfaces() { return removeInterfaces; }
+    public void setRemoveInterfaces(List<String> removeInterfaces) { this.removeInterfaces = removeInterfaces; }
+}
+```
+
+### 4. 完整代码流程
+
+1. 遍历项目中的 `.java` 文件，找到符合 `filePattern` 的文件。
+2. 根据 `rules.xml` 中的规则，删除指定的接口，并修改继承的父类。
+3. 将修改后的代码保存回原文件。
+
+### 示例
+
+假设有一个 Java 类如下：
+
+```java
+public class MyClass extends OldParentClass implements OldInterface1, OldInterface2 {
+    // 类体
+}
+```
+
+在应用以下规则后：
+
+```xml
+<rule>
+    <filePattern>.*MyClass\.java$</filePattern>
+    <newParentClass>NewParentClass</newParentClass> <!-- 修改继承的父类 -->
+    <removeInterfaces>
+        <interface>OldInterface1</interface> <!-- 删除的接口 -->
+    </removeInterfaces>
+</rule>
+```
+
+最终生成的 Java 类会变为：
+
+```java
+public class MyClass extends NewParentClass implements OldInterface2 {
+    // 类体
+}
+```
+
+### 处理方法体的情况
+
+如果需要根据不同规则对方法体进行增删改操作，可以继续扩展 `JavaFileModifier` 类，在处理类的声明后，进一步检查和修改方法的参数、方法体等逻辑。
+
 你提到的 `m.setBody()`、`getNameAsString()` 和 `::remove` 的方法报错，可能是由于使用的 `JavaParser` 版本不支持这些特定方法。让我们根据最新的 `JavaParser` API 和规范进行代码调整，以确保它可以正常工作。下面是 `JavaFileModifier.java` 的修正版本，适应最新的 `JavaParser` 版本和规范。
 
 ### 更新的 `JavaFileModifier.java`
