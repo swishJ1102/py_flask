@@ -1,3 +1,165 @@
+理解了！如果方法的参数是固定的，但方法体内容是根据某些条件动态生成的，那么可以在代码中为这些特殊情况编写逻辑。在这种情况下，你需要在 `JavaFileModifier` 中写一个逻辑，根据不同的规则或条件动态生成方法体。
+
+具体来说，你可以在 `JavaFileModifier` 的 `addMethodToClass` 方法中为每种规则编写特定的逻辑，来动态生成方法体的内容。
+
+### 1. XML 配置文件
+
+你可以在 `rules.xml` 中仍然定义添加方法的规则，但将方法体留空或用占位符标识，表示这个方法体将在后续代码中动态生成。
+
+#### 示例 `rules.xml`：
+
+```xml
+<rule>
+    <filePattern>.*Controller\\.java$</filePattern>
+    <classAnnotation>Controller</classAnnotation>
+    <imports>org.springframework.stereotype.Controller</imports>
+    
+    <!-- 定义动态添加的方法，方法体将由逻辑生成 -->
+    <methods>
+        <method>
+            <name>findForward</name>
+            <returnType>String</returnType>
+            <parameters>
+                <parameter>
+                    <type>String</type>
+                    <name>forwardName</name>
+                </parameter>
+            </parameters>
+            <!-- 动态生成标识 -->
+            <body>dynamic</body>
+        </method>
+    </methods>
+</rule>
+```
+
+### 2. 修改 `JavaFileModifier`，根据规则动态生成方法体
+
+#### 主要思路：
+
+- **解析 XML**：仍然解析 XML 文件中的 `<method>` 标签，获取方法名、参数和返回类型。
+- **动态生成方法体**：在 `JavaFileModifier` 中，根据特定条件或规则动态生成方法体的内容。
+
+#### 修改 `JavaFileModifier.java`
+
+```java
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.Parameter;
+import com.github.javaparser.ast.stmt.BlockStmt;
+import com.github.javaparser.ast.stmt.ReturnStmt;
+import com.github.javaparser.JavaParser;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.List;
+
+public class JavaFileModifier {
+    private JavaParser javaParser = new JavaParser();
+
+    public void modifyFile(File file, List<Rule> rules) throws IOException {
+        CompilationUnit cu = javaParser.parse(file).getResult().orElse(null);
+        if (cu == null) {
+            System.out.println("Error parsing file: " + file.getName());
+            return;
+        }
+
+        // 遍历所有规则
+        for (Rule rule : rules) {
+            if (file.getName().matches(rule.getFilePattern())) {
+
+                // 查找类声明
+                cu.findFirst(ClassOrInterfaceDeclaration.class).ifPresent(clazz -> {
+                    // 添加类注解
+                    if (rule.getClassAnnotation() != null) {
+                        clazz.addAnnotation(rule.getClassAnnotation());
+                    }
+
+                    // 添加导入
+                    for (String importStr : rule.getImports()) {
+                        cu.addImport(importStr);
+                    }
+
+                    // 添加方法
+                    for (Method method : rule.getMethods()) {
+                        addMethodToClass(clazz, method);
+                    }
+                });
+            }
+        }
+
+        // 将修改后的代码写回文件
+        Files.write(Paths.get(file.getAbsolutePath()), cu.toString().getBytes());
+    }
+
+    // 动态添加方法
+    private void addMethodToClass(ClassOrInterfaceDeclaration clazz, Method method) {
+        // 创建方法
+        MethodDeclaration methodDecl = clazz.addMethod(method.getName());
+        methodDecl.setType(method.getReturnType());
+
+        // 添加参数
+        for (Parameter param : method.getParameters()) {
+            com.github.javaparser.ast.body.Parameter jpParameter = new com.github.javaparser.ast.body.Parameter(
+                javaParser.parseType(param.getType()).getResult().get(), param.getName());
+            methodDecl.addParameter(jpParameter);
+        }
+
+        // 动态生成方法体
+        BlockStmt body = generateMethodBody(method);
+        methodDecl.setBody(body);
+    }
+
+    // 根据不同条件动态生成方法体内容
+    private BlockStmt generateMethodBody(Method method) {
+        BlockStmt body = new BlockStmt();
+
+        // 如果 body 字段为 "dynamic"，则表示需要动态生成
+        if ("dynamic".equals(method.getBody())) {
+            // 在这里根据特定逻辑生成方法体
+            if ("findForward".equals(method.getName())) {
+                // 例如，动态生成 findForward 的方法体
+                body.addStatement(new ReturnStmt("forwardName + \"Page\""));
+            }
+            // 你可以为其他方法添加更多的动态生成逻辑
+            // ...
+        } else {
+            // 否则直接使用方法体中的静态内容
+            body.addStatement(new ReturnStmt(method.getBody()));
+        }
+
+        return body;
+    }
+}
+```
+
+### 3. `XMLRuleParser` 解析方法保持不变
+
+在 XML 中我们已经定义了 `body` 字段，如果是动态生成的内容，我们在 XML 中填入 `dynamic`，解析时保持不变。
+
+### 4. 关键逻辑说明
+
+- **动态生成方法体**：通过 `generateMethodBody()` 方法，判断 `method.getBody()` 是否为 `"dynamic"`。如果是，那么方法体的具体内容将根据规则和方法名动态生成。
+  - 例如，针对 `findForward` 方法，我们根据逻辑动态生成 `forwardName + "Page"` 作为返回值。
+- **扩展性**：你可以为其他方法编写类似的逻辑。在 `generateMethodBody()` 方法中添加更多条件，针对不同方法名生成不同的代码片段。
+
+### 5. 扩展动态生成的逻辑
+
+可以根据具体的业务需求，为不同的方法名或其他条件编写相应的代码生成逻辑。例如：
+
+- **根据配置文件生成方法体**：如果你有其他配置文件可以参考内容，则可以在 `generateMethodBody` 中根据这些配置动态拼接代码。
+- **复杂逻辑生成**：你可以编写更复杂的逻辑，生成多个语句、调用其他方法、添加异常处理等。
+
+### 总结
+
+- **XML 中定义动态标识**：在 XML 文件中，用 `dynamic` 作为标识，表明方法体内容需要动态生成。
+- **JavaFileModifier**：在 `addMethodToClass` 中调用 `generateMethodBody()` 方法，根据规则生成不同的方法体。
+- **扩展性**：可以根据业务需要轻松扩展代码生成逻辑，为不同方法生成不同的代码。
+
+这种方式灵活且可扩展，能够处理各种需要动态生成方法体的情况。
+
 是的，你可以在 `BatchProcessor` 类中编写一个 `main` 方法来启动整个批量处理的流程。`main` 方法将负责以下工作：
 
 1. 解析规则的 XML 文件。
