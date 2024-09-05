@@ -1,3 +1,98 @@
+是的，你可以在 `BatchProcessor` 类中编写一个 `main` 方法来启动整个批量处理的流程。`main` 方法将负责以下工作：
+
+1. 解析规则的 XML 文件。
+2. 初始化 `BatchProcessor` 并传递解析到的规则。
+3. 递归处理指定目录下的所有 Java 文件，调用 `processFiles` 方法。
+
+下面是如何在 `BatchProcessor` 中编写 `main` 方法的示例：
+
+```java
+import java.io.File;
+import java.util.List;
+
+public class BatchProcessor {
+    private List<Rule> rules;
+    private JavaFileModifier fileModifier;
+
+    public BatchProcessor(List<Rule> rules) {
+        this.rules = rules;
+        this.fileModifier = new JavaFileModifier();
+    }
+
+    public void processFiles(File directory) throws Exception {
+        // 递归遍历目录中的所有文件
+        File[] files = directory.listFiles();
+        if (files == null) {
+            return;
+        }
+
+        for (File file : files) {
+            if (file.isDirectory()) {
+                processFiles(file); // 递归处理子目录
+            } else if (file.getName().endsWith(".java")) {
+                // 修改 Java 文件
+                fileModifier.modifyFile(file, rules);
+            }
+        }
+    }
+
+    // main 方法，程序入口
+    public static void main(String[] args) {
+        try {
+            // 指定 XML 规则文件路径
+            String rulesFilePath = "path/to/rules.xml";
+            
+            // 使用 XMLRuleParser 解析规则
+            XMLRuleParser parser = new XMLRuleParser();
+            List<Rule> rules = parser.parseRules(rulesFilePath);
+
+            // 创建 BatchProcessor 实例
+            BatchProcessor processor = new BatchProcessor(rules);
+            
+            // 指定要处理的项目文件夹路径
+            String projectDirectory = "path/to/java/project";
+            File directory = new File(projectDirectory);
+
+            // 开始处理 Java 文件
+            processor.processFiles(directory);
+
+            System.out.println("Java 文件处理完成。");
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
+```
+
+### 详细解释：
+
+1. **解析规则**：
+   - 使用 `XMLRuleParser` 从指定的 XML 文件路径读取规则，返回一个包含所有规则的 `List<Rule>`。
+
+2. **创建 `BatchProcessor` 实例**：
+   - 将解析后的规则传递给 `BatchProcessor`，它会负责后续的处理工作。
+
+3. **指定要处理的文件夹**：
+   - 设置 `projectDirectory`，指向你希望处理的 Java 文件的根目录。此目录下的所有 Java 文件（包括子目录中的文件）都会根据规则进行处理。
+
+4. **调用 `processFiles` 方法**：
+   - 递归遍历目录，找到所有 Java 文件并应用规则进行修改。
+
+5. **错误处理**：
+   - 捕获并打印异常，确保程序不会因为某个错误中断执行。
+
+### 如何运行：
+
+1. **配置 XML 规则文件**：确保你已经配置好了规则文件（如前面提到的 `rules.xml`），并将它的路径传入 `rulesFilePath`。
+
+2. **设置项目目录**：将你想要批量处理的 Java 文件的根目录设置为 `projectDirectory`。
+
+3. **运行程序**：编译并运行这个 `BatchProcessor` 类，程序将会按照规则对指定目录中的所有 Java 文件进行批量修改。
+
+### 总结
+
+`main` 方法是程序的入口，负责初始化和启动整个 Java 文件的批量处理任务。通过解析 XML 规则文件并递归处理目录中的 Java 文件，你可以根据配置文件中的增删改规则修改项目代码。
+
 为了支持你提到的规则（包括给类添加注解、字段上添加注解、修改方法体内容等）以及 XML 解析的结构，我们需要修改 `JavaFileModifier` 和 `BatchProcessor` 类来实现以下功能：
 
 1. **JavaFileModifier**：
