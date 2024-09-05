@@ -1,3 +1,187 @@
+好的，下面是对 `Rule` 类的补全，包括了文件模式、类注解、导入、方法的增删改规则等。
+
+### `Rule` 类的完整实现
+
+```java
+import java.util.List;
+
+public class Rule {
+    private String filePattern;  // 用于匹配文件的正则表达式
+    private String classAnnotation;  // 类上需要添加的注解
+    private List<String> imports;  // 需要添加的 import 语句
+    private List<MethodRule> methods;  // 需要处理的方法规则
+
+    // 构造函数
+    public Rule(String filePattern, String classAnnotation, List<String> imports, List<MethodRule> methods) {
+        this.filePattern = filePattern;
+        this.classAnnotation = classAnnotation;
+        this.imports = imports;
+        this.methods = methods;
+    }
+
+    // Getters and Setters
+    public String getFilePattern() {
+        return filePattern;
+    }
+
+    public void setFilePattern(String filePattern) {
+        this.filePattern = filePattern;
+    }
+
+    public String getClassAnnotation() {
+        return classAnnotation;
+    }
+
+    public void setClassAnnotation(String classAnnotation) {
+        this.classAnnotation = classAnnotation;
+    }
+
+    public List<String> getImports() {
+        return imports;
+    }
+
+    public void setImports(List<String> imports) {
+        this.imports = imports;
+    }
+
+    public List<MethodRule> getMethods() {
+        return methods;
+    }
+
+    public void setMethods(List<MethodRule> methods) {
+        this.methods = methods;
+    }
+}
+```
+
+### `MethodRule` 类
+
+`MethodRule` 用于描述方法修改的详细规则，例如方法的名称、删除行、增加行，以及是否需要动态内容。
+
+```java
+import java.util.List;
+
+public class MethodRule {
+    private String name;  // 方法名
+    private String action;  // 对方法执行的操作，如"add", "modify", "remove"
+    private List<String> deleteLines;  // 需要删除的行
+    private List<String> addLines;  // 需要添加的行
+    private String afterLine;  // 指定在某行之后添加新内容
+    private boolean hasDynamicContent;  // 是否需要动态内容（例如从配置中读取）
+
+    // 构造函数
+    public MethodRule(String name, String action, List<String> deleteLines, List<String> addLines, String afterLine, boolean hasDynamicContent) {
+        this.name = name;
+        this.action = action;
+        this.deleteLines = deleteLines;
+        this.addLines = addLines;
+        this.afterLine = afterLine;
+        this.hasDynamicContent = hasDynamicContent;
+    }
+
+    // Getters and Setters
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public String getAction() {
+        return action;
+    }
+
+    public void setAction(String action) {
+        this.action = action;
+    }
+
+    public List<String> getDeleteLines() {
+        return deleteLines;
+    }
+
+    public void setDeleteLines(List<String> deleteLines) {
+        this.deleteLines = deleteLines;
+    }
+
+    public List<String> getAddLines() {
+        return addLines;
+    }
+
+    public void setAddLines(List<String> addLines) {
+        this.addLines = addLines;
+    }
+
+    public String getAfterLine() {
+        return afterLine;
+    }
+
+    public void setAfterLine(String afterLine) {
+        this.afterLine = afterLine;
+    }
+
+    public boolean isHasDynamicContent() {
+        return hasDynamicContent;
+    }
+
+    public void setHasDynamicContent(boolean hasDynamicContent) {
+        this.hasDynamicContent = hasDynamicContent;
+    }
+}
+```
+
+### 使用示例
+
+下面是一个基于 `Rule` 类和 `MethodRule` 类的示例配置：
+
+```java
+import java.util.ArrayList;
+import java.util.Arrays;
+
+public class Main {
+    public static void main(String[] args) {
+        // 创建方法修改规则
+        MethodRule methodRule = new MethodRule(
+            "exampleMethod",   // 方法名
+            "modify",          // 操作类型
+            Arrays.asList("System.out.println(\"Old Line\");"),  // 要删除的行
+            Arrays.asList("System.out.println(\"New Line\");"),  // 要添加的行
+            null,              // 在某一行之后添加
+            false              // 是否需要动态内容
+        );
+
+        // 创建一个文件规则
+        Rule rule = new Rule(
+            ".*Controller\\.java$",  // 文件匹配模式，所有以Controller结尾的类
+            "Controller",            // 需要添加的类注解
+            Arrays.asList("org.springframework.stereotype.Controller"),  // 需要添加的import
+            Arrays.asList(methodRule)  // 方法修改规则
+        );
+
+        // 使用 JavaFileModifier 进行修改
+        JavaFileModifier modifier = new JavaFileModifier(null);
+        try {
+            modifier.modifyFiles(new File("path_to_java_file"), Arrays.asList(rule));
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
+```
+
+### 扩展
+
+- **更多规则**：如果你有多种规则，比如增加 `@Service` 或 `@Component` 注解，可以在配置中添加多个 `Rule` 对象，每个对象负责不同的规则。
+- **特殊逻辑处理**：通过在 `MethodRule` 中扩展更多字段或标志位，来处理特殊情况，如动态内容生成、特定的匹配条件等。
+
+### 逻辑解析过程
+
+1. **文件匹配**：`filePattern` 用于筛选要修改的文件，比如所有以 `Controller` 结尾的类。
+2. **注解添加**：`classAnnotation` 和 `imports` 用于定义类上需要增加的注解以及相应的导入语句。
+3. **方法处理**：`methods` 列表中包含一组 `MethodRule`，每个 `MethodRule` 用于描述如何修改类中的方法，比如删除某些行或添加某些行。
+
+通过这种结构，你可以灵活地配置不同的规则，来实现对 Java 项目中不同文件的批量修改。
+
 要进一步完善配置文件，以支持对特定类型的多个文件进行批量操作，我们可以将规则细化为多个层次。新的 XML 配置文件将包含对类的注解添加、导入语句的更新、方法体的修改、删除和增加行内容等操作。
 
 ### 1. **完善后的 XML 配置文件设计**
