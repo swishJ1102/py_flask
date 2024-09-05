@@ -1,0 +1,264 @@
+处理复杂的规则，如根据其他配置文件中的内容动态决定方法体的修改，确实需要更细致的策略。以下是如何实现这种功能的详细步骤：
+
+### 1. **配置文件设计**
+
+首先，你需要设计一个额外的配置文件，来定义这些动态内容。假设有一个配置文件 `methodContentConfig.xml`，用来描述方法体内的动态内容。
+
+#### `methodContentConfig.xml` 示例
+
+```xml
+<methodContents>
+    <method name="generateReport">
+        <content>
+            <add line="Report report = new Report();" />
+            <add line="report.generate();"/>
+        </content>
+    </method>
+    <method name="fetchData">
+        <content>
+            <add line="List<Data> data = new ArrayList<>();" />
+            <add line="data.addAll(fetchFromDatabase());"/>
+        </content>
+    </method>
+</methodContents>
+```
+
+### 2. **解析动态内容的配置**
+
+扩展配置解析器以读取和解析这些动态内容配置。
+
+#### `MethodContentConfigParser` 类
+
+```java
+import org.w3c.dom.*;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import java.io.File;
+import java.util.HashMap;
+import java.util.Map;
+
+public class MethodContentConfigParser {
+
+    public Map<String, MethodContent> parseMethodContents(String filePath) {
+        Map<String, MethodContent> methodContents = new HashMap<>();
+        try {
+            File file = new File(filePath);
+            DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+            DocumentBuilder db = dbf.newDocumentBuilder();
+            Document doc = db.parse(file);
+
+            doc.getDocumentElement().normalize();
+
+            NodeList methodList = doc.getElementsByTagName("method");
+
+            for (int i = 0; i < methodList.getLength(); i++) {
+                Node node = methodList.item(i);
+                if (node.getNodeType() == Node.ELEMENT_NODE) {
+                    Element element = (Element) node;
+                    String methodName = element.getAttribute("name");
+                    MethodContent methodContent = new MethodContent();
+
+                    NodeList contentList = element.getElementsByTagName("content").item(0).getChildNodes();
+                    for (int j = 0; j < contentList.getLength(); j++) {
+                        Node contentNode = contentList.item(j);
+                        if (contentNode.getNodeType() == Node.ELEMENT_NODE) {
+                            Element contentElement = (Element) contentNode;
+                            if ("add".equals(contentElement.getTagName())) {
+                                methodContent.addLine(contentElement.getAttribute("line"));
+                            }
+                        }
+                    }
+
+                    methodContents.put(methodName, methodContent);
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return methodContents;
+    }
+}
+
+class MethodContent {
+    private List<String> lines = new ArrayList<>();
+
+    public void addLine(String line) {
+        this.lines.add(line);
+    }
+
+    public List<String> getLines() {
+        return lines;
+    }
+}
+```
+
+### 3. **集成动态内容处理**
+
+在 `JavaFileModifier` 类中集成动态内容的处理逻辑。你需要在修改方法体时，检查是否有动态内容配置，并根据配置内容进行修改。
+
+#### 更新 `JavaFileModifier` 类
+
+```java
+import com.github.javaparser.JavaParser;
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.expr.MarkerAnnotationExpr;
+import com.github.javaparser.ast.stmt.BlockStmt;
+import com.github.javaparser.ast.stmt.Statement;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileWriter;
+import java.util.List;
+import java.util.Map;
+
+public class JavaFileModifier {
+
+    private Map<String, MethodContent> methodContentMap;
+
+    public JavaFileModifier(Map<String, MethodContent> methodContentMap) {
+        this.methodContentMap = methodContentMap;
+    }
+
+    public void modifyFiles(File file, List<Rule> rules) throws Exception {
+        FileInputStream in = new FileInputStream(file);
+        CompilationUnit cu = new JavaParser().parse(in).getResult().get();
+        in.close();
+
+        for (Rule rule : rules) {
+            if (rule.getFilePattern() != null && file.getName().matches(rule.getFilePattern())) {
+                // Apply class annotation and imports
+                if (rule.getClassAnnotation() != null) {
+                    modifyClass(cu, rule);
+                }
+                if (!rule.getImports().isEmpty()) {
+                    modifyImports(cu, rule);
+                }
+                if (!rule.getMethods().isEmpty()) {
+                    modifyMethods(cu, rule);
+                }
+            }
+        }
+
+        // Ensure all modifications are applied before writing to file
+        try (FileWriter fileWriter = new FileWriter(file)) {
+            fileWriter.write(cu.toString());
+        }
+    }
+
+    private void modifyClass(CompilationUnit cu, Rule rule) {
+        cu.findAll(ClassOrInterfaceDeclaration.class).forEach(c -> {
+            if (rule.getClassAnnotation() != null) {
+                c.addAnnotation(new MarkerAnnotationExpr(rule.getClassAnnotation()));
+            }
+        });
+    }
+
+    private void modifyImports(CompilationUnit cu, Rule rule) {
+        for (String importPackage : rule.getImports()) {
+            if (!cu.getImports().stream().anyMatch(i -> i.getNameAsString().equals(importPackage))) {
+                cu.addImport(importPackage);
+            }
+        }
+    }
+
+    private void modifyMethods(CompilationUnit cu, Rule rule) {
+        for (MethodRule methodRule : rule.getMethods()) {
+            cu.findAll(MethodDeclaration.class).forEach(m -> {
+                if (m.getNameAsString().equals(methodRule.getName())) {
+                    if ("remove".equals(methodRule.getAction())) {
+                        m.remove();
+                    } else if ("modify".equals(methodRule.getAction())) {
+                        BlockStmt body = m.getBody().orElse(null);
+                        if (body != null) {
+                            // Remove lines
+                            for (String deleteLine : methodRule.getDeleteLines()) {
+                                body.getStatements().removeIf(s -> s.toString().contains(deleteLine));
+                            }
+                            // Add lines based on dynamic content
+                            MethodContent methodContent = methodContentMap.get(methodRule.getName());
+                            if (methodContent != null) {
+                                for (String addLine : methodContent.getLines()) {
+                                    Statement newStatement = JavaParser.parseStatement(addLine);
+                                    if (methodRule.getAfterLine() != null) {
+                                        for (Statement statement : body.getStatements()) {
+                                            if (statement.toString().contains(methodRule.getAfterLine())) {
+                                                body.addStatement(body.getStatements().indexOf(statement) + 1, newStatement);
+                                            }
+                                        }
+                                    } else {
+                                        body.addStatement(newStatement);
+                                    }
+                                }
+                            }
+                            // Add lines from method rule
+                            for (String addLine : methodRule.getAddLines()) {
+                                Statement newStatement = JavaParser.parseStatement(addLine);
+                                if (methodRule.getAfterLine() != null) {
+                                    for (Statement statement : body.getStatements()) {
+                                        if (statement.toString().contains(methodRule.getAfterLine())) {
+                                            body.addStatement(body.getStatements().indexOf(statement) + 1, newStatement);
+                                        }
+                                    }
+                                } else {
+                                    body.addStatement(newStatement);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    }
+}
+```
+
+### 4. **集成到批处理流程**
+
+确保在执行批处理之前加载动态内容配置，并将其传递给 `JavaFileModifier` 实例。
+
+#### 更新 `BatchProcessor` 类
+
+```java
+import java.io.File;
+import java.util.List;
+import java.util.Map;
+
+public class BatchProcessor {
+
+    private List<Rule> rules;
+    private Map<String, MethodContent> methodContentMap;
+
+    public BatchProcessor(List<Rule> rules, Map<String, MethodContent> methodContentMap) {
+        this.rules = rules;
+        this.methodContentMap = methodContentMap;
+    }
+
+    public void processFiles(File root) {
+        File[] files = root.listFiles();
+        if (files != null) {
+            for (File file : files) {
+                if (file.isDirectory()) {
+                    processFiles(file); // Recursively process directories
+                } else if (file.getName().endsWith(".java")) {
+                    try {
+                        new JavaFileModifier(methodContentMap).modifyFiles(file, rules);
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+### 5. **总结**
+
+- **配置文件**：使用额外的配置文件定义动态内容，根据方法名和内容定义需要添加的代码行。
+- **解析动态内容**：扩展配置解析器，读取和解析动态内容配置。
+- **方法体修改**：在 `JavaFileModifier` 中集成动态内容处理，根据配置动态修改方法体。
+- **批处理**：在 `BatchProcessor` 中传递动态内容配置，确保每个文件的修改符合动态内容配置要求。
+
+这样，你可以根据额外配置文件中的内容动态修改方法体，实现更复杂的代码修改逻辑。
