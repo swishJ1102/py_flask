@@ -1,3 +1,126 @@
+你提到的 `m.setBody()`、`getNameAsString()` 和 `::remove` 的方法报错，可能是由于使用的 `JavaParser` 版本不支持这些特定方法。让我们根据最新的 `JavaParser` API 和规范进行代码调整，以确保它可以正常工作。下面是 `JavaFileModifier.java` 的修正版本，适应最新的 `JavaParser` 版本和规范。
+
+### 更新的 `JavaFileModifier.java`
+
+```java
+import com.github.javaparser.*;
+import com.github.javaparser.ast.*;
+import com.github.javaparser.ast.body.*;
+import com.github.javaparser.ast.expr.*;
+import com.github.javaparser.ast.stmt.*;
+import com.github.javaparser.ast.type.*;
+import com.github.javaparser.ast.Modifier;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.util.List;
+import java.util.Optional;
+
+public class JavaFileModifier {
+
+    public void modifyFile(File file, List<Rule> rules) throws Exception {
+        String fileName = file.getName();
+        CompilationUnit cu = StaticJavaParser.parse(file);
+
+        // Determine the appropriate rule based on the file name
+        Optional<Rule> matchingRule = rules.stream()
+            .filter(rule -> fileName.matches(rule.getFilePattern()))
+            .findFirst();
+
+        if (matchingRule.isPresent()) {
+            Rule rule = matchingRule.get();
+            applyClassAnnotation(cu, rule.getClassAnnotation());
+            applyImports(cu, rule.getClassAnnotation().getImports());
+            applyMethods(cu, rule.getMethods());
+            applyFields(cu, rule.getFields());
+        }
+
+        // Save the modified file
+        try (FileWriter writer = new FileWriter(file)) {
+            writer.write(cu.toString());
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to write file: " + file.getAbsolutePath(), e);
+        }
+    }
+
+    private void applyClassAnnotation(CompilationUnit cu, ClassAnnotation classAnnotation) {
+        if (classAnnotation != null) {
+            cu.findFirst(TypeDeclaration.class).ifPresent(typeDeclaration -> {
+                if (!typeDeclaration.isAnnotationPresent(classAnnotation.getAnnotation())) {
+                    typeDeclaration.addAnnotation(classAnnotation.getAnnotation());
+                }
+            });
+        }
+    }
+
+    private void applyImports(CompilationUnit cu, List<String> imports) {
+        for (String importStr : imports) {
+            if (!cu.getImports().stream().anyMatch(importStmt -> importStmt.getNameAsString().equals(importStr))) {
+                cu.addImport(importStr);
+            }
+        }
+    }
+
+    private void applyMethods(CompilationUnit cu, List<Method> methods) {
+        for (Method method : methods) {
+            cu.findFirst(ClassOrInterfaceDeclaration.class).ifPresent(classDeclaration -> {
+                if ("add".equals(method.getOperation())) {
+                    // Add new method
+                    MethodDeclaration newMethod = new MethodDeclaration();
+                    newMethod.setName(method.getName());
+                    newMethod.setType(new ClassOrInterfaceType(null, method.getReturnType()));
+
+                    method.getParameters().forEach(param -> {
+                        newMethod.addParameter(param.getType(), param.getName());
+                    });
+
+                    if ("dynamic".equals(method.getBody())) {
+                        // Apply custom logic to generate the method body
+                        BlockStmt body = new BlockStmt();
+                        body.addStatement("return forwardName;");
+                        newMethod.setBody(body);
+                    } else {
+                        newMethod.setBody(StaticJavaParser.parseBlock(method.getBody()));
+                    }
+
+                    classDeclaration.addMember(newMethod);
+                } else if ("update".equals(method.getOperation())) {
+                    // Update existing method body
+                    classDeclaration.getMethodsByName(method.getName())
+                        .forEach(m -> m.setBody(StaticJavaParser.parseBlock(method.getBody())));
+                } else if ("delete".equals(method.getOperation())) {
+                    // Remove method
+                    classDeclaration.getMethodsByName(method.getName()).forEach(m -> m.remove());
+                }
+            });
+        }
+    }
+
+    private void applyFields(CompilationUnit cu, List<Field> fields) {
+        for (Field field : fields) {
+            cu.findFirst(ClassOrInterfaceDeclaration.class).ifPresent(classDeclaration -> {
+                classDeclaration.getFields().stream()
+                    .filter(f -> f.getVariables().get(0).getNameAsString().equals(field.getName()))
+                    .findFirst()
+                    .ifPresent(f -> f.addAnnotation(field.getAnnotation()));
+            });
+        }
+    }
+}
+```
+
+### 修改内容说明：
+1. **`m.setBody()`**：更新方法体时，确保 `MethodDeclaration` 实例的 `setBody()` 方法可正常工作，直接替换 `BlockStmt` 实例来更新方法体内容。
+2. **`getNameAsString()`**：确保你正确获取方法、字段和注解的名称。`getNameAsString()` 应该用于从 `SimpleName` 和其他元素中获取文本名称。
+3. **`remove()`**：如果要删除方法或字段，应使用 `remove()` 方法直接删除 AST 节点。确保节点是 `MethodDeclaration` 或者是 `FieldDeclaration` 类型。
+
+### 调整重点：
+- **方法体更新与删除**：当执行 `update` 或 `delete` 操作时，会根据现有的 `MethodDeclaration` 节点直接进行修改或删除。
+- **类注解与导入**：该部分确保了注解和导入的增加不会重复。
+- **动态方法体生成**：当 `method.getBody()` 返回 `dynamic` 时，额外的逻辑可以生成动态的内容，例如 `findForward` 方法中的返回内容。
+
+这套调整后的代码应当符合最新 `JavaParser` 版本的要求，同时能够处理你提到的规则，避免报错问题。如果你有特定的测试用例，我们可以再进一步优化代码。
+
 好的，下面是完整的代码，包括 `rules.xml`、`XMLRuleParser`、`JavaFileModifier`、`BatchProcessor` 和相关的 `Rule`, `ClassAnnotation`, `Method`, `Parameter`, `Field` 类。
 
 ### 1. `rules.xml`
