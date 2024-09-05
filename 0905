@@ -1,3 +1,132 @@
+是的，`rules.xml` 已根据你的需求进行了更新。以下是更新后的 `rules.xml`，它包括了对类注解、导入语句、方法操作、成员变量注解等的规则定义：
+
+### 更新后的 `rules.xml` 示例
+
+```xml
+<rules>
+    <!-- 针对以Controller结尾的文件 -->
+    <rule>
+        <filePattern>.*Controller\.java$</filePattern>
+        <classAnnotation>Controller</classAnnotation>
+        <imports>
+            <import>org.springframework.stereotype.Controller</import>
+            <import>org.springframework.web.bind.annotation.RequestMapping</import>
+        </imports>
+        <methods>
+            <!-- 新增 findForward 方法 -->
+            <method>
+                <name>findForward</name>
+                <operation>add</operation>
+                <returnType>String</returnType>
+                <parameters>
+                    <parameter>
+                        <type>String</type>
+                        <name>forwardName</name>
+                    </parameter>
+                </parameters>
+                <!-- 使用 dynamic 表示这个方法体是动态生成的 -->
+                <body>dynamic</body>
+            </method>
+        </methods>
+    </rule>
+
+    <!-- 针对以Service结尾的文件 -->
+    <rule>
+        <filePattern>.*Service\.java$</filePattern>
+        <classAnnotation>Service</classAnnotation>
+        <imports>
+            <import>org.springframework.stereotype.Service</import>
+        </imports>
+        <methods>
+            <!-- 修改某个现有方法 -->
+            <method>
+                <name>processData</name>
+                <operation>update</operation>
+                <returnType>void</returnType>
+                <parameters>
+                    <parameter>
+                        <type>String</type>
+                        <name>data</name>
+                    </parameter>
+                </parameters>
+                <body>
+                {
+                    System.out.println("Processing: " + data);
+                }
+                </body>
+            </method>
+        </methods>
+    </rule>
+
+    <!-- 针对以Component结尾的文件 -->
+    <rule>
+        <filePattern>.*Component\.java$</filePattern>
+        <classAnnotation>Component</classAnnotation>
+        <imports>
+            <import>org.springframework.stereotype.Component</import>
+        </imports>
+        <methods>
+            <!-- 删除某个方法 -->
+            <method>
+                <name>cleanup</name>
+                <operation>delete</operation>
+            </method>
+        </methods>
+    </rule>
+
+    <!-- 针对需要成员变量注解的文件 -->
+    <rule>
+        <filePattern>.*Repository\.java$</filePattern>
+        <classAnnotation>Repository</classAnnotation>
+        <imports>
+            <import>org.springframework.stereotype.Repository</import>
+            <import>org.springframework.beans.factory.annotation.Autowired</import>
+        </imports>
+        <fields>
+            <field>
+                <name>dataSource</name>
+                <annotation>Autowired</annotation>
+            </field>
+        </fields>
+    </rule>
+</rules>
+```
+
+### 解释：
+
+1. **Controller 文件规则**：
+   - **`filePattern`**：匹配以 `Controller` 结尾的 Java 文件。
+   - **`classAnnotation`**：添加 `@Controller` 注解。
+   - **`imports`**：添加必要的 `import` 语句。
+   - **`methods`**：添加 `findForward` 方法，方法体内容动态生成。
+
+2. **Service 文件规则**：
+   - **`filePattern`**：匹配以 `Service` 结尾的 Java 文件。
+   - **`classAnnotation`**：添加 `@Service` 注解。
+   - **`imports`**：添加 `import` 语句。
+   - **`methods`**：修改 `processData` 方法，指定新的方法体内容。
+
+3. **Component 文件规则**：
+   - **`filePattern`**：匹配以 `Component` 结尾的 Java 文件。
+   - **`classAnnotation`**：添加 `@Component` 注解。
+   - **`imports`**：添加 `import` 语句。
+   - **`methods`**：删除 `cleanup` 方法。
+
+4. **Repository 文件规则**：
+   - **`filePattern`**：匹配以 `Repository` 结尾的 Java 文件。
+   - **`classAnnotation`**：添加 `@Repository` 注解。
+   - **`imports`**：添加 `import` 语句。
+   - **`fields`**：对成员变量 `dataSource` 添加 `@Autowired` 注解。
+
+### 下一步：
+
+- **更新 `JavaFileModifier`**：根据这些规则，添加相应的逻辑来处理方法体内容、字段注解等。
+- **处理动态方法体内容**：在 `JavaFileModifier` 中处理动态生成的 `findForward` 方法体。
+- **确保 XML 格式正确**：确保 XML 文件的格式和内容与规则一致。
+
+如果有其他特殊需求或更多规则，可以继续更新 `rules.xml` 并调整相关的 Java 代码。
+
+
 好的，我将根据你的需求，生成一个完整的 Java 代码框架。该框架能够根据 XML 规则对 Java 文件进行批量的增删改操作，具体包括：
 
 - 添加/修改/删除类注解和导入语句
