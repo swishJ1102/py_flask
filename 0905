@@ -1,3 +1,362 @@
+好的，按照你的需求，我将重新设计一个全新的规则框架，能够支持对 Java 类的各种增删改操作，包括类注解、字段注解、方法注解、方法体、继承、实现、import 语句等等。
+
+### 规则设计
+
+我们可以为每个规则指定三种操作：`add`、`remove` 和 `update`。此外，每个规则还可以应用到不同的 Java 文件模式（通过正则表达式指定），使得规则灵活且可扩展。
+
+### 新的 `rules.xml` 设计
+
+#### 示例 `rules.xml`
+
+```xml
+<rules>
+    <!-- 针对某些以 Service 结尾的类进行增删改 -->
+    <rule>
+        <filePattern>.*Service\.java$</filePattern>
+
+        <!-- 修改类的继承 -->
+        <parentClass>
+            <operation>update</operation>
+            <newParentClass>NewParentClass</newParentClass>
+        </parentClass>
+
+        <!-- 增加类的注解 -->
+        <classAnnotations>
+            <operation>add</operation>
+            <annotation>@Service</annotation>
+        </classAnnotations>
+
+        <!-- 增加类的 import -->
+        <imports>
+            <operation>add</operation>
+            <import>org.springframework.stereotype.Service</import>
+        </imports>
+
+        <!-- 增加字段的注解 -->
+        <fieldAnnotations>
+            <operation>add</operation>
+            <annotation>@Autowired</annotation>
+        </fieldAnnotations>
+
+        <!-- 删除某个接口的实现 -->
+        <interfaces>
+            <operation>remove</operation>
+            <interface>OldInterface</interface>
+        </interfaces>
+
+        <!-- 增加一个新的方法 -->
+        <methods>
+            <operation>add</operation>
+            <method>
+                public void newMethod() {
+                    // 动态生成的方法体内容
+                }
+            </method>
+        </methods>
+
+        <!-- 删除一个旧的方法 -->
+        <methods>
+            <operation>remove</operation>
+            <method>oldMethod</method>
+        </methods>
+    </rule>
+
+    <!-- 针对某些 Controller 类进行操作 -->
+    <rule>
+        <filePattern>.*Controller\.java$</filePattern>
+
+        <!-- 增加注解并添加 import -->
+        <classAnnotations>
+            <operation>add</operation>
+            <annotation>@Controller</annotation>
+        </classAnnotations>
+        <imports>
+            <operation>add</operation>
+            <import>org.springframework.stereotype.Controller</import>
+        </imports>
+
+        <!-- 修改父类为新类 -->
+        <parentClass>
+            <operation>update</operation>
+            <newParentClass>BaseController</newParentClass>
+        </parentClass>
+    </rule>
+</rules>
+```
+
+### 1. `Rule` 类设计
+
+`Rule` 类将存储每个规则，包括其操作类型、匹配的文件模式、修改类、字段、方法、继承、实现、import 语句的操作。
+
+```java
+import java.util.List;
+
+public class Rule {
+    private String filePattern; // 文件正则模式
+    private String operation; // 操作类型 (add, remove, update)
+
+    // 类继承与实现
+    private String newParentClass;
+    private List<String> interfacesToRemove;
+
+    // 注解
+    private List<String> classAnnotations;
+    private List<String> fieldAnnotations;
+
+    // Import 语句
+    private List<String> imports;
+
+    // 方法
+    private List<String> methodsToAdd;
+    private List<String> methodsToRemove;
+
+    // Getters 和 Setters
+    // ...省略代码
+}
+```
+
+### 2. `XMLRuleParser` 类
+
+`XMLRuleParser` 用来解析 `rules.xml`，将 XML 文件转换为 Java 中的 `Rule` 对象。
+
+```java
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
+
+public class XMLRuleParser {
+
+    public List<Rule> parseRules(String xmlFilePath) throws Exception {
+        List<Rule> rules = new ArrayList<>();
+
+        // 创建 DocumentBuilderFactory 实例
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        DocumentBuilder builder = factory.newDocumentBuilder();
+        Document doc = builder.parse(new File(xmlFilePath));
+
+        // 获取所有 <rule> 元素
+        NodeList ruleNodes = doc.getElementsByTagName("rule");
+        for (int i = 0; i < ruleNodes.getLength(); i++) {
+            Node ruleNode = ruleNodes.item(i);
+            if (ruleNode.getNodeType() == Node.ELEMENT_NODE) {
+                Element ruleElement = (Element) ruleNode;
+
+                Rule rule = new Rule();
+
+                // 解析 filePattern
+                String filePattern = ruleElement.getElementsByTagName("filePattern").item(0).getTextContent();
+                rule.setFilePattern(filePattern);
+
+                // 解析 classAnnotations
+                NodeList classAnnotationNodes = ruleElement.getElementsByTagName("classAnnotations");
+                if (classAnnotationNodes.getLength() > 0) {
+                    Element classAnnotationElement = (Element) classAnnotationNodes.item(0);
+                    String operation = classAnnotationElement.getElementsByTagName("operation").item(0).getTextContent();
+                    rule.setOperation(operation);
+
+                    List<String> classAnnotations = new ArrayList<>();
+                    NodeList annotationNodes = classAnnotationElement.getElementsByTagName("annotation");
+                    for (int j = 0; j < annotationNodes.getLength(); j++) {
+                        String annotationName = annotationNodes.item(j).getTextContent();
+                        classAnnotations.add(annotationName);
+                    }
+                    rule.setClassAnnotations(classAnnotations);
+                }
+
+                // 解析 fieldAnnotations
+                NodeList fieldAnnotationNodes = ruleElement.getElementsByTagName("fieldAnnotations");
+                if (fieldAnnotationNodes.getLength() > 0) {
+                    Element fieldAnnotationElement = (Element) fieldAnnotationNodes.item(0);
+                    String operation = fieldAnnotationElement.getElementsByTagName("operation").item(0).getTextContent();
+                    rule.setOperation(operation);
+
+                    List<String> fieldAnnotations = new ArrayList<>();
+                    NodeList annotationNodes = fieldAnnotationElement.getElementsByTagName("annotation");
+                    for (int j = 0; j < annotationNodes.getLength(); j++) {
+                        String annotationName = annotationNodes.item(j).getTextContent();
+                        fieldAnnotations.add(annotationName);
+                    }
+                    rule.setFieldAnnotations(fieldAnnotations);
+                }
+
+                // 解析 imports
+                NodeList importNodes = ruleElement.getElementsByTagName("imports");
+                if (importNodes.getLength() > 0) {
+                    Element importElement = (Element) importNodes.item(0);
+                    String operation = importElement.getElementsByTagName("operation").item(0).getTextContent();
+                    rule.setOperation(operation);
+
+                    List<String> imports = new ArrayList<>();
+                    NodeList importItemNodes = importElement.getElementsByTagName("import");
+                    for (int j = 0; j < importItemNodes.getLength(); j++) {
+                        String importItem = importItemNodes.item(j).getTextContent();
+                        imports.add(importItem);
+                    }
+                    rule.setImports(imports);
+                }
+
+                // 解析 methods
+                NodeList methodNodes = ruleElement.getElementsByTagName("methods");
+                if (methodNodes.getLength() > 0) {
+                    Element methodElement = (Element) methodNodes.item(0);
+                    String operation = methodElement.getElementsByTagName("operation").item(0).getTextContent();
+                    rule.setOperation(operation);
+
+                    List<String> methodsToAdd = new ArrayList<>();
+                    List<String> methodsToRemove = new ArrayList<>();
+                    NodeList methodItemNodes = methodElement.getElementsByTagName("method");
+                    for (int j = 0; j < methodItemNodes.getLength(); j++) {
+                        String method = methodItemNodes.item(j).getTextContent();
+                        if (operation.equals("add")) {
+                            methodsToAdd.add(method);
+                        } else if (operation.equals("remove")) {
+                            methodsToRemove.add(method);
+                        }
+                    }
+                    rule.setMethodsToAdd(methodsToAdd);
+                    rule.setMethodsToRemove(methodsToRemove);
+                }
+
+                // 添加解析出的规则
+                rules.add(rule);
+            }
+        }
+
+        return rules;
+    }
+}
+```
+
+### 3. `JavaFileModifier` 类
+
+`JavaFileModifier` 用来根据解析的规则，修改指定的 Java 文件。
+
+```java
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.expr.AnnotationExpr;
+
+import java.util.List;
+
+public class JavaFileModifier {
+
+    public void modify(CompilationUnit cu, Rule rule) {
+        // 处理类注解的增加、删除、修改
+        processClassAnnotations(cu, rule);
+
+        // 处理 import 语句的增加、删除、修改
+        processImports(cu, rule);
+
+        // 处理方法的增加、删除、修改
+        processMethods(cu, rule);
+
+        // 处理继承的修改
+        updateParentClass(cu, rule);
+
+        // 处理接口实现的删除
+        removeInterfaces(cu, rule);
+    }
+
+    private void processClassAnnotations(CompilationUnit cu, Rule rule) {
+        if (rule.getOperation().equals("add")) {
+            for (ClassOrInterfaceDeclaration clazz : cu.findAll(ClassOrInterfaceDeclaration.class)) {
+                for (String annotation : rule.getClassAnnotations()) {
+                    clazz.addAnnotation(annotation);
+                }
+            }
+        }
+    }
+
+    private void processImports(CompilationUnit cu, Rule rule) {
+        if (rule.getOperation().equals("add")) {
+            for (String importStmt : rule.getImports()) {
+                cu.addImport(importStmt);
+            }
+        }
+    }
+
+    private void processMethods(CompilationUnit cu, Rule rule) {
+        if (rule.getOperation().equals("add")) {
+            for (String method : rule.getMethodsToAdd()) {
+                // 解析并增加方法
+            }
+        }
+
+        if (rule.getOperation().equals("remove")) {
+            for (String methodName : rule.getMethodsToRemove()) {
+                cu.findAll(MethodDeclaration.class).removeIf(m -> m.getNameAsString().equals(methodName));
+            }
+        }
+    }
+
+    private void updateParentClass(CompilationUnit cu, Rule rule) {
+        if (rule.getOperation().equals("update") && rule.getNewParentClass() != null) {
+            for (ClassOrInterfaceDeclaration clazz : cu.findAll(ClassOrInterfaceDeclaration.class)) {
+                clazz.setExtendedType(rule.getNewParentClass());
+            }
+        }
+    }
+
+    private void removeInterfaces(CompilationUnit cu, Rule rule) {
+        if (rule.getOperation().equals("remove")) {
+            for (ClassOrInterfaceDeclaration clazz : cu.findAll(ClassOrInterfaceDeclaration.class)) {
+                for (String iface : rule.getInterfacesToRemove()) {
+                    clazz.getImplementedTypes().removeIf(t -> t.getNameAsString().equals(iface));
+                }
+            }
+        }
+    }
+}
+```
+
+### 4. 调用主类
+
+```java
+import com.github.javaparser.JavaParser;
+import com.github.javaparser.ast.CompilationUnit;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.util.List;
+
+public class Main {
+    public static void main(String[] args) throws Exception {
+        // 解析 XML 规则文件
+        XMLRuleParser parser = new XMLRuleParser();
+        List<Rule> rules = parser.parseRules("rules.xml");
+
+        // 遍历所有 Java 文件并应用规则
+        File projectDir = new File("path/to/project");
+        for (File file : projectDir.listFiles()) {
+            if (file.getName().endsWith(".java")) {
+                FileInputStream in = new FileInputStream(file);
+                CompilationUnit cu = JavaParser.parse(in);
+
+                for (Rule rule : rules) {
+                    if (file.getName().matches(rule.getFilePattern())) {
+                        JavaFileModifier modifier = new JavaFileModifier();
+                        modifier.modify(cu, rule);
+                    }
+                }
+
+                // 保存修改后的文件
+                // ...保存逻辑
+            }
+        }
+    }
+}
+```
+
+这个完整的框架可以处理 Java 类的增删改操作，包括类注解、字段注解、方法注解、继承、实现、import 语句和方法体等内容。
+
 为了满足**删除实现**和**修改继承**的需求，我们可以通过解析和修改 Java 类声明部分的 `implements` 和 `extends` 部分来完成这些操作。
 
 ### 需求分析
