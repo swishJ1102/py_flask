@@ -1,3 +1,196 @@
+是的，既然我们在 `Rule` 类中新增了更详细的规则内容，包括对方法的修改（`MethodRule`），那么在 `XMLRuleParser` 解析时，也要做相应的调整，以支持这些新加入的规则字段。
+
+### `XMLRuleParser` 修改计划
+
+1. **解析 `MethodRule`**：支持从 XML 中读取方法修改规则（如增加、删除行的操作）。
+2. **解析类注解和导入语句**：支持从 XML 读取类注解和导入的配置。
+3. **解析文件匹配模式**：根据文件名的正则表达式匹配特定文件。
+
+### 修改后的 XML 配置示例
+
+首先，让我们看一个修改后的 XML 配置示例，它支持我们新的 `Rule` 和 `MethodRule` 结构：
+
+```xml
+<rules>
+    <rule>
+        <filePattern>.*Controller\.java$</filePattern>
+        <classAnnotation>Controller</classAnnotation>
+        <imports>
+            <import>org.springframework.stereotype.Controller</import>
+        </imports>
+        <methods>
+            <method>
+                <name>findForward</name>
+                <action>modify</action>
+                <deleteLines>
+                    <line>System.out.println("Old Line");</line>
+                </deleteLines>
+                <addLines>
+                    <line>System.out.println("New Line");</line>
+                </addLines>
+                <afterLine>return "success";</afterLine>
+            </method>
+        </methods>
+    </rule>
+
+    <rule>
+        <filePattern>.*Service\.java$</filePattern>
+        <classAnnotation>Service</classAnnotation>
+        <imports>
+            <import>org.springframework.stereotype.Service</import>
+        </imports>
+        <methods>
+            <method>
+                <name>myMethod</name>
+                <action>add</action>
+                <addLines>
+                    <line>System.out.println("Newly added line");</line>
+                </addLines>
+            </method>
+        </methods>
+    </rule>
+</rules>
+```
+
+### 修改后的 `XMLRuleParser`
+
+接下来是修改后的 `XMLRuleParser`，该解析器能正确解析上面提到的 XML 结构，并返回 `Rule` 和 `MethodRule` 对象。
+
+```java
+import org.w3c.dom.*;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
+
+public class XMLRuleParser {
+
+    public List<Rule> parseRules(String xmlFilePath) throws Exception {
+        List<Rule> rules = new ArrayList<>();
+        File xmlFile = new File(xmlFilePath);
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        DocumentBuilder builder = factory.newDocumentBuilder();
+        Document doc = builder.parse(xmlFile);
+        doc.getDocumentElement().normalize();
+
+        NodeList ruleNodes = doc.getElementsByTagName("rule");
+
+        for (int i = 0; i < ruleNodes.getLength(); i++) {
+            Node ruleNode = ruleNodes.item(i);
+
+            if (ruleNode.getNodeType() == Node.ELEMENT_NODE) {
+                Element ruleElement = (Element) ruleNode;
+
+                // 解析 filePattern
+                String filePattern = ruleElement.getElementsByTagName("filePattern").item(0).getTextContent();
+
+                // 解析 classAnnotation
+                String classAnnotation = ruleElement.getElementsByTagName("classAnnotation").item(0).getTextContent();
+
+                // 解析 imports
+                List<String> imports = new ArrayList<>();
+                NodeList importNodes = ruleElement.getElementsByTagName("import");
+                for (int j = 0; j < importNodes.getLength(); j++) {
+                    imports.add(importNodes.item(j).getTextContent());
+                }
+
+                // 解析 methods
+                List<MethodRule> methods = new ArrayList<>();
+                NodeList methodNodes = ruleElement.getElementsByTagName("method");
+
+                for (int j = 0; j < methodNodes.getLength(); j++) {
+                    Element methodElement = (Element) methodNodes.item(j);
+
+                    String methodName = methodElement.getElementsByTagName("name").item(0).getTextContent();
+                    String action = methodElement.getElementsByTagName("action").item(0).getTextContent();
+
+                    // 解析 deleteLines
+                    List<String> deleteLines = new ArrayList<>();
+                    NodeList deleteLineNodes = methodElement.getElementsByTagName("deleteLines");
+                    if (deleteLineNodes.getLength() > 0) {
+                        NodeList lines = ((Element) deleteLineNodes.item(0)).getElementsByTagName("line");
+                        for (int k = 0; k < lines.getLength(); k++) {
+                            deleteLines.add(lines.item(k).getTextContent());
+                        }
+                    }
+
+                    // 解析 addLines
+                    List<String> addLines = new ArrayList<>();
+                    NodeList addLineNodes = methodElement.getElementsByTagName("addLines");
+                    if (addLineNodes.getLength() > 0) {
+                        NodeList lines = ((Element) addLineNodes.item(0)).getElementsByTagName("line");
+                        for (int k = 0; k < lines.getLength(); k++) {
+                            addLines.add(lines.item(k).getTextContent());
+                        }
+                    }
+
+                    // 解析 afterLine
+                    String afterLine = null;
+                    NodeList afterLineNodes = methodElement.getElementsByTagName("afterLine");
+                    if (afterLineNodes.getLength() > 0) {
+                        afterLine = afterLineNodes.item(0).getTextContent();
+                    }
+
+                    // 创建 MethodRule 对象
+                    MethodRule methodRule = new MethodRule(
+                            methodName, action, deleteLines, addLines, afterLine, false
+                    );
+                    methods.add(methodRule);
+                }
+
+                // 创建 Rule 对象
+                Rule rule = new Rule(filePattern, classAnnotation, imports, methods);
+                rules.add(rule);
+            }
+        }
+
+        return rules;
+    }
+}
+```
+
+### 解析过程说明
+
+1. **解析文件模式**：通过 `filePattern` 匹配要修改的 Java 文件。
+2. **解析类注解**：从 `classAnnotation` 标签中获取需要加在类上的注解。
+3. **解析导入语句**：从 `imports` 标签中读取需要导入的包。
+4. **解析方法规则**：从 `methods` 标签下读取每个方法的修改规则，包括方法名、要执行的操作（增、删、改）、需要删除的行、需要添加的行、以及指定在哪行后添加新内容。
+5. **解析条件行**：使用 `afterLine` 来控制在某行之后插入新代码。
+
+### 扩展解析
+
+如果你有更多复杂的规则，比如：
+- **动态内容**：可以扩展 `MethodRule` 来支持从其他配置文件或动态生成的内容。
+- **复杂匹配逻辑**：在 `XMLRuleParser` 中添加额外的条件逻辑。
+
+### 最终使用
+
+将解析得到的规则传递给 `JavaFileModifier`，然后在批处理程序中应用这些规则。例如：
+
+```java
+public class Main {
+    public static void main(String[] args) {
+        try {
+            XMLRuleParser parser = new XMLRuleParser();
+            List<Rule> rules = parser.parseRules("path_to_rules.xml");
+
+            // 假设你已经定义了 MethodContent 的逻辑并初始化了 methodContentMap
+            Map<String, MethodContent> methodContentMap = new HashMap<>();
+
+            BatchProcessor processor = new BatchProcessor(rules, methodContentMap);
+            processor.processFiles(new File("path_to_java_project"));
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
+```
+
+### 总结
+
+通过对 `XMLRuleParser` 的修改，现在可以支持更加灵活、详细的增删改规则。`XMLRuleParser` 会读取 XML 配置，并生成相应的 `Rule` 和 `MethodRule` 对象，最后应用于 Java 文件的批量修改任务中。
+
 好的，下面是对 `Rule` 类的补全，包括了文件模式、类注解、导入、方法的增删改规则等。
 
 ### `Rule` 类的完整实现
