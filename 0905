@@ -1,3 +1,301 @@
+要进一步完善配置文件，以支持对特定类型的多个文件进行批量操作，我们可以将规则细化为多个层次。新的 XML 配置文件将包含对类的注解添加、导入语句的更新、方法体的修改、删除和增加行内容等操作。
+
+### 1. **完善后的 XML 配置文件设计**
+
+下面是一个更复杂的 XML 配置文件示例，它支持对特定类型的多个文件执行批量操作。
+
+#### 完善后的 XML 配置文件（`rules.xml`）
+
+```xml
+<rules>
+    <!-- 对特定类型的文件（例如以 Service 结尾的类）添加注解和导入语句 -->
+    <rule>
+        <filePattern pattern=".*Service.java">
+            <classAnnotation annotation="org.springframework.stereotype.Service"/>
+            <import package="org.springframework.stereotype.Service"/>
+        </filePattern>
+    </rule>
+
+    <!-- 更新导入语句，添加或替换旧的导入 -->
+    <rule>
+        <filePattern pattern=".*Service.java">
+            <import package="org.springframework.beans.factory.annotation.Autowired"/>
+            <import package="java.util.Optional" action="replace" oldPackage="java.util.List"/>
+        </filePattern>
+    </rule>
+
+    <!-- 修改特定方法体，删除、增加或替换行内容 -->
+    <rule>
+        <filePattern pattern=".*Service.java">
+            <method name="findAll" action="modify">
+                <delete line="return this.repository.findAll();"/>
+                <add line="List<MyEntity> entities = this.repository.findAll();" after="List<MyEntity> result = this.repository.findAll();"/>
+            </method>
+        </filePattern>
+    </rule>
+    
+    <!-- 删除某个方法体 -->
+    <rule>
+        <filePattern pattern=".*Service.java">
+            <method name="deleteMethod" action="remove"/>
+        </filePattern>
+    </rule>
+</rules>
+```
+
+### 2. **解析器和规则结构更新**
+
+为了支持更复杂的配置文件，我们需要扩展之前的解析器和规则结构，使其能够处理新的规则类型。
+
+#### 更新后的 `Rule` 类
+
+```java
+import java.util.ArrayList;
+import java.util.List;
+
+public class Rule {
+    private String filePattern;
+    private String classAnnotation;
+    private List<String> imports = new ArrayList<>();
+    private List<MethodRule> methods = new ArrayList<>();
+
+    // Getters and setters
+
+    public void addImport(String importPackage) {
+        this.imports.add(importPackage);
+    }
+
+    public void addMethodRule(MethodRule methodRule) {
+        this.methods.add(methodRule);
+    }
+}
+
+class MethodRule {
+    private String name;
+    private String action; // modify, remove
+    private List<String> addLines = new ArrayList<>();
+    private List<String> deleteLines = new ArrayList<>();
+    private String afterLine;
+
+    // Getters and setters
+
+    public void addAddLine(String line) {
+        this.addLines.add(line);
+    }
+
+    public void addDeleteLine(String line) {
+        this.deleteLines.add(line);
+    }
+}
+```
+
+#### 更新后的 `XMLRuleParser` 类
+
+```java
+import org.w3c.dom.*;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
+
+public class XMLRuleParser {
+
+    public List<Rule> parseRules(String filePath) {
+        List<Rule> rules = new ArrayList<>();
+        try {
+            File file = new File(filePath);
+            DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+            DocumentBuilder db = dbf.newDocumentBuilder();
+            Document doc = db.parse(file);
+
+            doc.getDocumentElement().normalize();
+
+            NodeList ruleList = doc.getElementsByTagName("rule");
+
+            for (int i = 0; i < ruleList.getLength(); i++) {
+                Node node = ruleList.item(i);
+                if (node.getNodeType() == Node.ELEMENT_NODE) {
+                    Element element = (Element) node;
+                    Rule rule = new Rule();
+
+                    NodeList childNodes = element.getChildNodes();
+                    for (int j = 0; j < childNodes.getLength(); j++) {
+                        Node childNode = childNodes.item(j);
+                        if (childNode.getNodeType() == Node.ELEMENT_NODE) {
+                            Element childElement = (Element) childNode;
+                            String tagName = childElement.getTagName();
+
+                            if (tagName.equals("filePattern")) {
+                                rule.setFilePattern(childElement.getAttribute("pattern"));
+                                
+                                NodeList filePatternChildren = childElement.getChildNodes();
+                                for (int k = 0; k < filePatternChildren.getLength(); k++) {
+                                    Node filePatternChild = filePatternChildren.item(k);
+                                    if (filePatternChild.getNodeType() == Node.ELEMENT_NODE) {
+                                        Element fpChildElement = (Element) filePatternChild;
+                                        String fpChildTagName = fpChildElement.getTagName();
+
+                                        if (fpChildTagName.equals("classAnnotation")) {
+                                            rule.setClassAnnotation(fpChildElement.getAttribute("annotation"));
+                                        }
+
+                                        if (fpChildTagName.equals("import")) {
+                                            String importPackage = fpChildElement.getAttribute("package");
+                                            String action = fpChildElement.getAttribute("action");
+                                            String oldPackage = fpChildElement.getAttribute("oldPackage");
+                                            if ("replace".equals(action) && oldPackage != null) {
+                                                // Replace old import with the new one
+                                                rule.getImports().remove(oldPackage);
+                                            }
+                                            rule.addImport(importPackage);
+                                        }
+
+                                        if (fpChildTagName.equals("method")) {
+                                            MethodRule methodRule = new MethodRule();
+                                            methodRule.setName(fpChildElement.getAttribute("name"));
+                                            methodRule.setAction(fpChildElement.getAttribute("action"));
+
+                                            NodeList methodChildren = fpChildElement.getChildNodes();
+                                            for (int l = 0; l < methodChildren.getLength(); l++) {
+                                                Node methodChild = methodChildren.item(l);
+                                                if (methodChild.getNodeType() == Node.ELEMENT_NODE) {
+                                                    Element methodChildElement = (Element) methodChild;
+                                                    String methodChildTagName = methodChildElement.getTagName();
+
+                                                    if (methodChildTagName.equals("delete")) {
+                                                        methodRule.addDeleteLine(methodChildElement.getAttribute("line"));
+                                                    }
+                                                    if (methodChildTagName.equals("add")) {
+                                                        methodRule.addAddLine(methodChildElement.getAttribute("line"));
+                                                        methodRule.setAfterLine(methodChildElement.getAttribute("after"));
+                                                    }
+                                                }
+                                            }
+                                            rule.addMethodRule(methodRule);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    rules.add(rule);
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return rules;
+    }
+}
+```
+
+### 3. **Java 文件修改器更新**
+
+我们需要更新 `JavaFileModifier`，使其能够处理导入语句的替换、方法体的行删除和添加。
+
+#### 更新后的 `JavaFileModifier` 类
+
+```java
+import com.github.javaparser.JavaParser;
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.expr.MarkerAnnotationExpr;
+import com.github.javaparser.ast.stmt.BlockStmt;
+import com.github.javaparser.ast.stmt.Statement;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileWriter;
+import java.util.List;
+
+public class JavaFileModifier {
+
+    public void modifyFiles(File file, List<Rule> rules) throws Exception {
+        FileInputStream in = new FileInputStream(file);
+        CompilationUnit cu = new JavaParser().parse(in).getResult().get();
+        in.close();
+
+        for (Rule rule : rules) {
+            if (rule.getFilePattern() != null && file.getName().matches(rule.getFilePattern())) {
+                if (rule.getClassAnnotation() != null) {
+                    modifyClass(cu, rule);
+                }
+                if (!rule.getImports().isEmpty()) {
+                    modifyImports(cu, rule);
+                }
+                if (!rule.getMethods().isEmpty()) {
+                    modifyMethods(cu, rule);
+                }
+            }
+        }
+
+        try (FileWriter fileWriter = new FileWriter(file)) {
+            fileWriter.write(cu.toString());
+        }
+    }
+
+    private void modifyClass(CompilationUnit cu, Rule rule) {
+        cu.findAll(ClassOrInterfaceDeclaration.class).forEach(c -> {
+            c.addAnnotation(new MarkerAnnotationExpr(rule.getClassAnnotation()));
+        });
+    }
+
+    private void modifyImports(CompilationUnit cu, Rule rule) {
+        for (String importPackage : rule.getImports()) {
+            if (!cu.getImports().stream().anyMatch(i -> i.getNameAsString().equals(importPackage))) {
+                cu.addImport(importPackage);
+            }
+        }
+    }
+
+    private void modifyMethods(CompilationUnit cu, Rule rule) {
+        for (MethodRule methodRule : rule.getMethods()) {
+            cu.findAll(MethodDeclaration.class).forEach(m -> {
+                if (m.getNameAsString().equals(methodRule.getName())) {
+                    if ("remove".equals(methodRule.getAction())) {
+                        m.remove();
+                    } else if ("modify".equals(methodRule.getAction())) {
+                        BlockStmt body = m.getBody().orElse(null);
+                        if (body != null) {
+                            // Remove lines
+                            for (String deleteLine : methodRule.getDeleteLines()) {
+                                body.getStatements().removeIf(s -> s.toString().contains(deleteLine));
+                            }
+                            // Add lines after a specific statement
+                            for (String addLine : methodRule.getAddLines()) {
+                                Statement newStatement = JavaParser.parseStatement(addLine);
+                                if (methodRule.getAfterLine() != null) {
+                                    for (Statement statement : body.getStatements()) {
+                                        if (statement.toString().contains(methodRule.getAfterLine())) {
+                                            body.addStatement(body.getStatements().indexOf(statement) + 1, newStatement);
+                                        }
+                                    }
+                                } else {
+                                    body.addStatement(newStatement);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    }
+}
+```
+
+### 4. **总结**
+
+通过上述改进，框架现在可以根据文件名模式批量修改 Java 文件，包括：
+
+1. **增加类上的注解**，并自动添加相应的 `import` 语句。
+2. **替换或增加 `import` 语句**，支持替换旧的导入。
+3. **修改方法体**，删除、增加特定行的代码，或移除整个方法。
+4. **XML配置文件**提供了更精细的控制，可以针对不同的文件类型定义不同的修改规则。
+
+使用这个框架，你可以根据实际需要扩展规则，从而实现对项目中大量 Java 文件的批量修改。
+
 处理复杂的规则，如根据其他配置文件中的内容动态决定方法体的修改，确实需要更细致的策略。以下是如何实现这种功能的详细步骤：
 
 ### 1. **配置文件设计**
