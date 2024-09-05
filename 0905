@@ -1,3 +1,379 @@
+明白了，你希望每个规则中的每个操作项（如类注解、字段注解、import 语句等）都能独立地具有 `add`、`remove` 和 `update` 操作，而不是将整个规则的操作类型统一为一个。这样每个具体的操作项可以独立处理其对应的增删改操作。
+
+### 新的 `rules.xml` 设计
+
+在这个设计中，我们会为每种操作项（如类注解、字段注解、import 语句等）独立定义操作类型。
+
+#### 示例 `rules.xml`
+
+```xml
+<rules>
+    <rule>
+        <filePattern>.*Service\.java$</filePattern>
+
+        <!-- 类注解 -->
+        <classAnnotations>
+            <operation>add</operation>
+            <annotation>@Service</annotation>
+        </classAnnotations>
+
+        <!-- 类的 import -->
+        <imports>
+            <operation>add</operation>
+            <import>org.springframework.stereotype.Service</import>
+        </imports>
+
+        <!-- 字段注解 -->
+        <fieldAnnotations>
+            <operation>add</operation>
+            <annotation>@Autowired</annotation>
+        </fieldAnnotations>
+
+        <!-- 方法 -->
+        <methods>
+            <!-- 增加方法 -->
+            <addMethods>
+                <method>
+                    public void newMethod() {
+                        // 动态生成的方法体内容
+                    }
+                </method>
+            </addMethods>
+
+            <!-- 删除方法 -->
+            <removeMethods>
+                <method>oldMethod</method>
+            </removeMethods>
+        </methods>
+
+        <!-- 修改继承 -->
+        <parentClass>
+            <operation>update</operation>
+            <newParentClass>NewParentClass</newParentClass>
+        </parentClass>
+
+        <!-- 删除接口实现 -->
+        <interfaces>
+            <operation>remove</operation>
+            <interface>OldInterface</interface>
+        </interfaces>
+    </rule>
+
+    <!-- 针对 Controller 类进行操作 -->
+    <rule>
+        <filePattern>.*Controller\.java$</filePattern>
+
+        <!-- 增加类注解 -->
+        <classAnnotations>
+            <operation>add</operation>
+            <annotation>@Controller</annotation>
+        </classAnnotations>
+
+        <!-- 增加类的 import -->
+        <imports>
+            <operation>add</operation>
+            <import>org.springframework.stereotype.Controller</import>
+        </imports>
+
+        <!-- 修改父类 -->
+        <parentClass>
+            <operation>update</operation>
+            <newParentClass>BaseController</newParentClass>
+        </parentClass>
+    </rule>
+</rules>
+```
+
+### 修改后的 `Rule` 类
+
+`Rule` 类将具有多个操作项，每个操作项可以独立设置其操作类型。
+
+```java
+import java.util.List;
+
+public class Rule {
+    private String filePattern; // 文件正则模式
+
+    // 类注解
+    private String classAnnotationOperation;
+    private List<String> classAnnotations;
+
+    // 字段注解
+    private String fieldAnnotationOperation;
+    private List<String> fieldAnnotations;
+
+    // Import 语句
+    private String importOperation;
+    private List<String> imports;
+
+    // 方法
+    private String methodAddOperation;
+    private List<String> methodsToAdd;
+
+    private String methodRemoveOperation;
+    private List<String> methodsToRemove;
+
+    // 继承
+    private String parentClassOperation;
+    private String newParentClass;
+
+    // 接口实现
+    private String interfaceOperation;
+    private List<String> interfacesToRemove;
+
+    // Getters 和 Setters
+    // ...省略代码
+}
+```
+
+### 修改后的 `XMLRuleParser` 类
+
+`XMLRuleParser` 解析 XML 文件时，将每种操作项的操作类型分别处理。
+
+```java
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
+
+public class XMLRuleParser {
+
+    public List<Rule> parseRules(String xmlFilePath) throws Exception {
+        List<Rule> rules = new ArrayList<>();
+
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        DocumentBuilder builder = factory.newDocumentBuilder();
+        Document doc = builder.parse(new File(xmlFilePath));
+
+        NodeList ruleNodes = doc.getElementsByTagName("rule");
+        for (int i = 0; i < ruleNodes.getLength(); i++) {
+            Node ruleNode = ruleNodes.item(i);
+            if (ruleNode.getNodeType() == Node.ELEMENT_NODE) {
+                Element ruleElement = (Element) ruleNode;
+
+                Rule rule = new Rule();
+                rule.setFilePattern(ruleElement.getElementsByTagName("filePattern").item(0).getTextContent());
+
+                // 解析 classAnnotations
+                NodeList classAnnotationNodes = ruleElement.getElementsByTagName("classAnnotations");
+                if (classAnnotationNodes.getLength() > 0) {
+                    Element classAnnotationElement = (Element) classAnnotationNodes.item(0);
+                    rule.setClassAnnotationOperation(classAnnotationElement.getElementsByTagName("operation").item(0).getTextContent());
+                    
+                    List<String> classAnnotations = new ArrayList<>();
+                    NodeList annotationNodes = classAnnotationElement.getElementsByTagName("annotation");
+                    for (int j = 0; j < annotationNodes.getLength(); j++) {
+                        classAnnotations.add(annotationNodes.item(j).getTextContent());
+                    }
+                    rule.setClassAnnotations(classAnnotations);
+                }
+
+                // 解析 fieldAnnotations
+                NodeList fieldAnnotationNodes = ruleElement.getElementsByTagName("fieldAnnotations");
+                if (fieldAnnotationNodes.getLength() > 0) {
+                    Element fieldAnnotationElement = (Element) fieldAnnotationNodes.item(0);
+                    rule.setFieldAnnotationOperation(fieldAnnotationElement.getElementsByTagName("operation").item(0).getTextContent());
+
+                    List<String> fieldAnnotations = new ArrayList<>();
+                    NodeList annotationNodes = fieldAnnotationElement.getElementsByTagName("annotation");
+                    for (int j = 0; j < annotationNodes.getLength(); j++) {
+                        fieldAnnotations.add(annotationNodes.item(j).getTextContent());
+                    }
+                    rule.setFieldAnnotations(fieldAnnotations);
+                }
+
+                // 解析 imports
+                NodeList importNodes = ruleElement.getElementsByTagName("imports");
+                if (importNodes.getLength() > 0) {
+                    Element importElement = (Element) importNodes.item(0);
+                    rule.setImportOperation(importElement.getElementsByTagName("operation").item(0).getTextContent());
+
+                    List<String> imports = new ArrayList<>();
+                    NodeList importItemNodes = importElement.getElementsByTagName("import");
+                    for (int j = 0; j < importItemNodes.getLength(); j++) {
+                        imports.add(importItemNodes.item(j).getTextContent());
+                    }
+                    rule.setImports(imports);
+                }
+
+                // 解析 methods
+                NodeList methodAddNodes = ruleElement.getElementsByTagName("addMethods");
+                if (methodAddNodes.getLength() > 0) {
+                    Element methodAddElement = (Element) methodAddNodes.item(0);
+                    rule.setMethodAddOperation(methodAddElement.getElementsByTagName("operation").item(0).getTextContent());
+
+                    List<String> methodsToAdd = new ArrayList<>();
+                    NodeList methodItemNodes = methodAddElement.getElementsByTagName("method");
+                    for (int j = 0; j < methodItemNodes.getLength(); j++) {
+                        methodsToAdd.add(methodItemNodes.item(j).getTextContent());
+                    }
+                    rule.setMethodsToAdd(methodsToAdd);
+                }
+
+                NodeList methodRemoveNodes = ruleElement.getElementsByTagName("removeMethods");
+                if (methodRemoveNodes.getLength() > 0) {
+                    Element methodRemoveElement = (Element) methodRemoveNodes.item(0);
+                    rule.setMethodRemoveOperation(methodRemoveElement.getElementsByTagName("operation").item(0).getTextContent());
+
+                    List<String> methodsToRemove = new ArrayList<>();
+                    NodeList methodItemNodes = methodRemoveElement.getElementsByTagName("method");
+                    for (int j = 0; j < methodItemNodes.getLength(); j++) {
+                        methodsToRemove.add(methodItemNodes.item(j).getTextContent());
+                    }
+                    rule.setMethodsToRemove(methodsToRemove);
+                }
+
+                // 解析 parentClass
+                NodeList parentClassNodes = ruleElement.getElementsByTagName("parentClass");
+                if (parentClassNodes.getLength() > 0) {
+                    Element parentClassElement = (Element) parentClassNodes.item(0);
+                    rule.setParentClassOperation(parentClassElement.getElementsByTagName("operation").item(0).getTextContent());
+                    rule.setNewParentClass(parentClassElement.getElementsByTagName("newParentClass").item(0).getTextContent());
+                }
+
+                // 解析 interfaces
+                NodeList interfaceNodes = ruleElement.getElementsByTagName("interfaces");
+                if (interfaceNodes.getLength() > 0) {
+                    Element interfaceElement = (Element) interfaceNodes.item(0);
+                    rule.setInterfaceOperation(interfaceElement.getElementsByTagName("operation").item(0).getTextContent());
+
+                    List<String> interfacesToRemove = new ArrayList<>();
+                    NodeList interfaceItemNodes = interfaceElement.getElementsByTagName("interface");
+                    for (int j = 0; j < interfaceItemNodes.getLength(); j++) {
+                        interfacesToRemove.add(interfaceItemNodes.item(j).getTextContent());
+                    }
+                    rule.setInterfacesToRemove(interfacesToRemove);
+                }
+
+                rules.add(rule);
+            }
+        }
+
+        return rules;
+    }
+}
+```
+
+### 修改后的 `JavaFileModifier` 类
+
+`JavaFileModifier` 需要根据每个具体的操作项和操作类型来处理 Java 文件。
+
+```java
+import com.github.javaparser.JavaParser;
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.VariableDeclarator;
+import com.github.javaparser.ast.body.TypeDeclaration;
+import com.github.javaparser.ast.expr.AnnotationExpr;
+import com.github.javaparser.ast.type.ClassOrInterfaceType;
+import com.github.javaparser.ast.type.Type;
+
+import java.util.List;
+
+public class JavaFileModifier {
+
+    public void modify(CompilationUnit cu, Rule rule) {
+        processClassAnnotations(cu, rule);
+        processImports(cu, rule);
+        processFieldAnnotations(cu, rule);
+        processMethods(cu, rule);
+        updateParentClass(cu, rule);
+        removeInterfaces(cu, rule);
+    }
+
+    private void processClassAnnotations(CompilationUnit cu, Rule rule) {
+        if (rule.getClassAnnotationOperation().equals("add")) {
+            for (ClassOrInterfaceDeclaration clazz : cu.findAll(ClassOrInterfaceDeclaration.class)) {
+                for (String annotation : rule.getClassAnnotations()) {
+                    if (!clazz.getAnnotations().stream()
+                            .anyMatch(a -> a.getNameAsString().equals(annotation.replace("@", "")))) {
+                        clazz.addAnnotation(annotation);
+                    }
+                }
+            }
+        }
+    }
+
+    private void processFieldAnnotations(CompilationUnit cu, Rule rule) {
+        if (rule.getFieldAnnotationOperation().equals("add")) {
+            for (VariableDeclarator field : cu.findAll(VariableDeclarator.class)) {
+                for (String annotation : rule.getFieldAnnotations()) {
+                    if (!field.getAnnotations().stream()
+                            .anyMatch(a -> a.getNameAsString().equals(annotation.replace("@", "")))) {
+                        field.addAnnotation(annotation);
+                    }
+                }
+            }
+        }
+    }
+
+    private void processImports(CompilationUnit cu, Rule rule) {
+        if (rule.getImportOperation().equals("add")) {
+            for (String importStmt : rule.getImports()) {
+                if (!cu.getImports().stream()
+                        .anyMatch(i -> i.getNameAsString().equals(importStmt))) {
+                    cu.addImport(importStmt);
+                }
+            }
+        }
+    }
+
+    private void processMethods(CompilationUnit cu, Rule rule) {
+        if (rule.getMethodAddOperation().equals("add")) {
+            for (String method : rule.getMethodsToAdd()) {
+                // 解析并增加方法
+                MethodDeclaration methodDeclaration = JavaParser.parseMethodDeclaration(method);
+                cu.findAll(ClassOrInterfaceDeclaration.class).forEach(c -> c.addMethod(methodDeclaration));
+            }
+        }
+
+        if (rule.getMethodRemoveOperation().equals("remove")) {
+            for (String methodName : rule.getMethodsToRemove()) {
+                cu.findAll(MethodDeclaration.class)
+                        .removeIf(m -> m.getNameAsString().equals(methodName));
+            }
+        }
+    }
+
+    private void updateParentClass(CompilationUnit cu, Rule rule) {
+        if (rule.getParentClassOperation().equals("update") && rule.getNewParentClass() != null) {
+            for (ClassOrInterfaceDeclaration clazz : cu.findAll(ClassOrInterfaceDeclaration.class)) {
+                if (clazz.getExtendedTypes().size() > 0) {
+                    clazz.getExtendedTypes().forEach(t -> t.setName(rule.getNewParentClass()));
+                }
+            }
+        }
+    }
+
+    private void removeInterfaces(CompilationUnit cu, Rule rule) {
+        if (rule.getInterfaceOperation().equals("remove")) {
+            for (ClassOrInterfaceDeclaration clazz : cu.findAll(ClassOrInterfaceDeclaration.class)) {
+                for (String iface : rule.getInterfacesToRemove()) {
+                    clazz.getImplementedTypes().removeIf(t -> t.getNameAsString().equals(iface));
+                }
+            }
+        }
+    }
+}
+```
+
+### 主要修改点
+
+1. **`Rule` 类**：现在包含每个操作项的独立操作类型（`add`、`remove`、`update`）。
+
+2. **`XMLRuleParser` 类**：解析 XML 时读取每个操作项的操作类型，并将其存储到 `Rule` 对象中。
+
+3. **`JavaFileModifier` 类**：根据 `Rule` 中每个操作项的操作类型来处理文件中的对应内容。
+
+这样，你的系统就可以更加灵活地处理各种复杂的增删改操作。
+
 好的，按照你的需求，我将重新设计一个全新的规则框架，能够支持对 Java 类的各种增删改操作，包括类注解、字段注解、方法注解、方法体、继承、实现、import 语句等等。
 
 ### 规则设计
