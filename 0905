@@ -1,3 +1,468 @@
+好的，下面是完整的代码，包括 `rules.xml`、`XMLRuleParser`、`JavaFileModifier`、`BatchProcessor` 和相关的 `Rule`, `ClassAnnotation`, `Method`, `Parameter`, `Field` 类。
+
+### 1. `rules.xml`
+
+```xml
+<rules>
+    <!-- 增加 @Controller 注解及导入 -->
+    <rule>
+        <filePattern>.*Controller\.java$</filePattern>
+        <classAnnotation>
+            <annotation>Controller</annotation>
+            <import>org.springframework.stereotype.Controller</import>
+        </classAnnotation>
+        <methods>
+            <!-- 根据条件动态增加方法体 -->
+            <method>
+                <name>findForward</name>
+                <operation>add</operation>
+                <returnType>String</returnType>
+                <parameters>
+                    <parameter>
+                        <type>String</type>
+                        <name>forwardName</name>
+                    </parameter>
+                </parameters>
+                <body>dynamic</body>
+            </method>
+        </methods>
+    </rule>
+
+    <!-- 增加 @Service 注解及导入，修改方法体 -->
+    <rule>
+        <filePattern>.*Service\.java$</filePattern>
+        <classAnnotation>
+            <annotation>Service</annotation>
+            <import>org.springframework.stereotype.Service</import>
+        </classAnnotation>
+        <methods>
+            <method>
+                <name>processData</name>
+                <operation>update</operation>
+                <returnType>void</returnType>
+                <parameters>
+                    <parameter>
+                        <type>String</type>
+                        <name>data</name>
+                    </parameter>
+                </parameters>
+                <body>
+                {
+                    System.out.println("Processing: " + data);
+                }
+                </body>
+            </method>
+        </methods>
+    </rule>
+
+    <!-- 增加 @Component 注解及导入，删除方法 -->
+    <rule>
+        <filePattern>.*Component\.java$</filePattern>
+        <classAnnotation>
+            <annotation>Component</annotation>
+            <import>org.springframework.stereotype.Component</import>
+        </classAnnotation>
+        <methods>
+            <method>
+                <name>cleanup</name>
+                <operation>delete</operation>
+            </method>
+        </methods>
+    </rule>
+
+    <!-- 增加 @Autowired 注解到字段 -->
+    <rule>
+        <filePattern>.*Repository\.java$</filePattern>
+        <classAnnotation>
+            <annotation>Repository</annotation>
+            <import>org.springframework.stereotype.Repository</import>
+            <import>org.springframework.beans.factory.annotation.Autowired</import>
+        </classAnnotation>
+        <fields>
+            <field>
+                <name>dataSource</name>
+                <annotation>Autowired</annotation>
+            </field>
+        </fields>
+    </rule>
+</rules>
+```
+
+### 2. `XMLRuleParser.java`
+
+```java
+import org.w3c.dom.*;
+import javax.xml.parsers.*;
+import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
+
+public class XMLRuleParser {
+    public List<Rule> parse(String xmlFilePath) throws Exception {
+        List<Rule> rules = new ArrayList<>();
+        File xmlFile = new File(xmlFilePath);
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        DocumentBuilder builder = factory.newDocumentBuilder();
+        Document doc = builder.parse(xmlFile);
+
+        NodeList ruleNodes = doc.getElementsByTagName("rule");
+        for (int i = 0; i < ruleNodes.getLength(); i++) {
+            Element ruleElement = (Element) ruleNodes.item(i);
+            Rule rule = new Rule();
+
+            rule.setFilePattern(getTextContent(ruleElement, "filePattern"));
+            rule.setClassAnnotation(parseClassAnnotation(ruleElement));
+            rule.setMethods(parseMethods(ruleElement));
+            rule.setFields(parseFields(ruleElement));
+
+            rules.add(rule);
+        }
+        return rules;
+    }
+
+    private ClassAnnotation parseClassAnnotation(Element ruleElement) {
+        Element classAnnotationElement = (Element) ruleElement.getElementsByTagName("classAnnotation").item(0);
+        if (classAnnotationElement == null) return null;
+
+        ClassAnnotation classAnnotation = new ClassAnnotation();
+        classAnnotation.setAnnotation(getTextContent(classAnnotationElement, "annotation"));
+
+        NodeList importNodes = classAnnotationElement.getElementsByTagName("import");
+        for (int i = 0; i < importNodes.getLength(); i++) {
+            classAnnotation.getImports().add(importNodes.item(i).getTextContent());
+        }
+        return classAnnotation;
+    }
+
+    private List<Method> parseMethods(Element ruleElement) {
+        List<Method> methods = new ArrayList<>();
+        NodeList methodNodes = ruleElement.getElementsByTagName("methods");
+
+        if (methodNodes.getLength() > 0) {
+            Element methodsElement = (Element) methodNodes.item(0);
+            NodeList methodElements = methodsElement.getElementsByTagName("method");
+
+            for (int i = 0; i < methodElements.getLength(); i++) {
+                Element methodElement = (Element) methodElements.item(i);
+                Method method = new Method();
+
+                method.setName(getTextContent(methodElement, "name"));
+                method.setOperation(getTextContent(methodElement, "operation"));
+                method.setReturnType(getTextContent(methodElement, "returnType"));
+                method.setParameters(parseParameters(methodElement));
+                method.setBody(getTextContent(methodElement, "body"));
+
+                methods.add(method);
+            }
+        }
+        return methods;
+    }
+
+    private List<Field> parseFields(Element ruleElement) {
+        List<Field> fields = new ArrayList<>();
+        NodeList fieldNodes = ruleElement.getElementsByTagName("fields");
+
+        if (fieldNodes.getLength() > 0) {
+            Element fieldsElement = (Element) fieldNodes.item(0);
+            NodeList fieldElements = fieldsElement.getElementsByTagName("field");
+
+            for (int i = 0; i < fieldElements.getLength(); i++) {
+                Element fieldElement = (Element) fieldElements.item(i);
+                Field field = new Field();
+
+                field.setName(getTextContent(fieldElement, "name"));
+                field.setAnnotation(getTextContent(fieldElement, "annotation"));
+
+                fields.add(field);
+            }
+        }
+        return fields;
+    }
+
+    private List<Parameter> parseParameters(Element methodElement) {
+        List<Parameter> parameters = new ArrayList<>();
+        NodeList paramNodes = methodElement.getElementsByTagName("parameters");
+
+        if (paramNodes.getLength() > 0) {
+            Element parametersElement = (Element) paramNodes.item(0);
+            NodeList parameterElements = parametersElement.getElementsByTagName("parameter");
+
+            for (int i = 0; i < parameterElements.getLength(); i++) {
+                Element parameterElement = (Element) parameterElements.item(i);
+                Parameter parameter = new Parameter();
+
+                parameter.setType(getTextContent(parameterElement, "type"));
+                parameter.setName(getTextContent(parameterElement, "name"));
+
+                parameters.add(parameter);
+            }
+        }
+        return parameters;
+    }
+
+    private String getTextContent(Element element, String tagName) {
+        NodeList nodeList = element.getElementsByTagName(tagName);
+        if (nodeList != null && nodeList.getLength() > 0) {
+            Node node = nodeList.item(0);
+            if (node != null) {
+                return node.getTextContent();
+            }
+        }
+        return "";
+    }
+}
+```
+
+### 3. `JavaFileModifier.java`
+
+```java
+import com.github.javaparser.*;
+import com.github.javaparser.ast.*;
+import com.github.javaparser.ast.body.*;
+import com.github.javaparser.ast.expr.*;
+import com.github.javaparser.ast.stmt.*;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.util.List;
+
+public class JavaFileModifier {
+
+    public void modifyFile(File file, List<Rule> rules) throws Exception {
+        String fileName = file.getName();
+        CompilationUnit cu = StaticJavaParser.parse(file);
+
+        // Determine the appropriate rule based on the file name
+        Optional<Rule> matchingRule = rules.stream()
+            .filter(rule -> fileName.matches(rule.getFilePattern()))
+            .findFirst();
+
+        if (matchingRule.isPresent()) {
+            Rule rule = matchingRule.get();
+            applyClassAnnotation(cu, rule.getClassAnnotation());
+            applyImports(cu, rule.getClassAnnotation().getImports());
+            applyMethods(cu, rule.getMethods());
+            applyFields(cu, rule.getFields());
+        }
+
+        // Save the modified file
+        try (FileWriter writer = new FileWriter(file)) {
+            writer.write(cu.toString());
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to write file: " + file.getAbsolutePath(), e);
+        }
+    }
+
+    private void applyClassAnnotation(CompilationUnit cu, ClassAnnotation classAnnotation) {
+        if (classAnnotation != null) {
+            cu.findFirst(TypeDeclaration.class).ifPresent(typeDeclaration -> {
+                if (!typeDeclaration.getAnnotations().stream()
+                    .anyMatch(annotation -> annotation.getNameAsString().equals(classAnnotation.getAnnotation()))) {
+                    typeDeclaration.addAnnotation(classAnnotation.getAnnotation());
+                }
+            });
+        }
+    }
+
+    private void applyImports(CompilationUnit cu, List<String> imports) {
+        for (String importStr : imports) {
+            if (!cu.getImports().stream().anyMatch(importStmt -> importStmt.getNameAsString().equals(importStr))) {
+                cu.addImport(importStr);
+            }
+        }
+    }
+
+    private void applyMethods(CompilationUnit cu, List<Method> methods) {
+        for (Method method : methods) {
+            cu.findFirst(TypeDeclaration.class).ifPresent(typeDeclaration -> {
+                if ("add".equals(method.getOperation())) {
+                    // Add new method
+                    MethodDeclaration newMethod = new MethodDeclaration();
+                    newMethod.setName(method.getName());
+                    newMethod.setType(method.getReturnType());
+
+                    method.getParameters().forEach(param -> {
+                        newMethod.addParameter(param.getType(), param.getName());
+                    });
+
+                    if ("dynamic".equals(method.getBody())) {
+                        // Apply custom logic to generate the method body
+                        BlockStmt body = new BlockStmt();
+                        body.addStatement("return forwardName;");
+                        newMethod.setBody(body);
+                    } else {
+                        newMethod.setBody(StaticJavaParser.parseBlock(method.getBody()));
+                    }
+
+                    typeDeclaration.addMember(newMethod);
+                } else if ("update".equals(method.getOperation())) {
+                    // Update existing method body
+                    typeDeclaration.getMethodsByName(method.getName())
+                        .forEach(m -> m.setBody(StaticJavaParser.parseBlock(method.getBody())));
+                } else if ("delete".equals(method.getOperation())) {
+                    // Remove method
+                    typeDeclaration.getMethodsByName(method.getName()).forEach(MethodDeclaration::remove);
+                }
+            });
+        }
+    }
+
+    private void applyFields(CompilationUnit cu, List<Field> fields) {
+        for (Field field : fields) {
+            cu.findFirst(ClassOrInterfaceDeclaration.class).ifPresent(classDeclaration -> {
+                classDeclaration.getFields().stream()
+                    .filter(f -> f.getVariable(0).getNameAsString().equals(field.getName()))
+                    .findFirst()
+                    .ifPresent(f -> f.addAnnotation(field.getAnnotation()));
+            });
+        }
+    }
+}
+```
+
+### 4. `BatchProcessor.java`
+
+```java
+import java.io.File;
+import java.nio.file.*;
+import java.util.List;
+
+public class BatchProcessor {
+
+    public static void main(String[] args) throws Exception {
+        String projectDir = args[0]; // 获取工程目录
+        String rulesFile = args[1];  // 获取规则文件路径
+
+        XMLRuleParser parser = new XMLRuleParser();
+        List<Rule> rules = parser.parse(rulesFile);
+
+        JavaFileModifier modifier = new JavaFileModifier();
+
+        Files.walk(Paths.get(projectDir))
+                .filter(Files::isRegularFile)
+                .filter(path -> path.toString().endsWith(".java"))
+                .forEach(path -> {
+                    try {
+                        modifier.modifyFile(path.toFile(), rules);
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                });
+    }
+}
+```
+
+### 5. `Rule.java`
+
+```java
+import java.util.List;
+
+public class Rule {
+    private String filePattern;
+    private ClassAnnotation classAnnotation;
+    private List<Method> methods;
+    private List<Field> fields;
+
+    // Getters and Setters
+    public String getFilePattern() { return filePattern; }
+    public void setFilePattern(String filePattern) { this.filePattern = filePattern; }
+
+    public ClassAnnotation getClassAnnotation() { return classAnnotation; }
+    public void setClassAnnotation(ClassAnnotation classAnnotation) { this.classAnnotation = classAnnotation; }
+
+    public List<Method> getMethods() { return methods; }
+    public void setMethods(List<Method> methods) { this.methods = methods; }
+
+    public List<Field> getFields() { return fields; }
+    public void setFields(List<Field> fields) { this.fields = fields; }
+}
+```
+
+### 6. `ClassAnnotation.java`
+
+```java
+import java.util.ArrayList;
+import java.util.List;
+
+public class ClassAnnotation {
+    private String annotation;
+    private List<String> imports = new ArrayList<>();
+
+    // Getters and Setters
+    public String getAnnotation() { return annotation; }
+    public void setAnnotation(String annotation) { this.annotation = annotation; }
+
+    public List<String> getImports() { return imports; }
+    public void setImports(List<String> imports) { this.imports = imports; }
+}
+```
+
+### 7. `Method.java`
+
+```java
+import java.util.List;
+
+public class Method {
+    private String name;
+    private String operation;
+    private String returnType;
+    private List<Parameter> parameters;
+    private String body;
+
+    // Getters and Setters
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+
+    public String getOperation() { return operation; }
+    public void setOperation(String operation) { this.operation = operation; }
+
+    public String getReturnType() { return returnType; }
+    public void setReturnType(String returnType) { this.returnType = returnType; }
+
+    public List<Parameter> getParameters() { return parameters; }
+    public void setParameters(List<Parameter> parameters) { this.parameters = parameters; }
+
+    public String getBody() { return body; }
+    public void setBody(String body) { this.body = body; }
+}
+```
+
+### 8. `Parameter.java`
+
+```java
+public class Parameter {
+    private String type;
+    private String name;
+
+    // Getters and Setters
+    public String getType() { return type; }
+    public void setType(String type) { this.type = type; }
+
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+}
+```
+
+### 9. `Field.java`
+
+```java
+public class Field {
+    private String name;
+    private String annotation;
+
+    // Getters and Setters
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+
+    public String getAnnotation() { return annotation; }
+    public void setAnnotation(String annotation) { this.annotation = annotation; }
+}
+```
+
+### 总结
+
+这一整套代码可以帮助你从 `rules.xml` 配置文件中读取规则，并对指定的 Java 文件进行修改，包括添加类注解、添加导入语句、添加或修改方法、字段注解等。你可以通过运行 `BatchProcessor` 来遍历工程目录下的所有 `.java` 文件，并应用配置文件中的规则。
+
 为了满足你的需求，配置文件需要能够灵活地描述各种代码修改规则，包括类注解、字段注解、方法的增删改、方法体的修改等。以下是一个精简而有效的 `rules.xml` 配置文件示例，以及对应的 Java 代码实现。这种配置文件设计允许根据规则进行直接增删改操作，同时可以处理需要解析 Java 代码来判断的情况。
 
 ### 精简版 `rules.xml` 示例
