@@ -1,3 +1,385 @@
+好的，我将根据你的需求，生成一个完整的 Java 代码框架。该框架能够根据 XML 规则对 Java 文件进行批量的增删改操作，具体包括：
+
+- 添加/修改/删除类注解和导入语句
+- 添加/修改/删除方法
+- 动态生成方法体内容
+- 支持复杂的规则解析和操作
+
+### 1. **`Rule.java`** — 规则类
+
+```java
+import java.util.List;
+
+public class Rule {
+    private String filePattern;
+    private String classAnnotation;
+    private List<String> imports;
+    private List<Method> methods;
+
+    // Getters and Setters
+    public String getFilePattern() {
+        return filePattern;
+    }
+
+    public void setFilePattern(String filePattern) {
+        this.filePattern = filePattern;
+    }
+
+    public String getClassAnnotation() {
+        return classAnnotation;
+    }
+
+    public void setClassAnnotation(String classAnnotation) {
+        this.classAnnotation = classAnnotation;
+    }
+
+    public List<String> getImports() {
+        return imports;
+    }
+
+    public void setImports(List<String> imports) {
+        this.imports = imports;
+    }
+
+    public List<Method> getMethods() {
+        return methods;
+    }
+
+    public void setMethods(List<Method> methods) {
+        this.methods = methods;
+    }
+}
+```
+
+### 2. **`Method.java`** — 方法规则类
+
+```java
+import java.util.List;
+
+public class Method {
+    private String name;
+    private String operation; // add, update, delete
+    private String returnType;
+    private List<Parameter> parameters;
+    private String body; // dynamic or static
+
+    // Getters and Setters
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public String getOperation() {
+        return operation;
+    }
+
+    public void setOperation(String operation) {
+        this.operation = operation;
+    }
+
+    public String getReturnType() {
+        return returnType;
+    }
+
+    public void setReturnType(String returnType) {
+        this.returnType = returnType;
+    }
+
+    public List<Parameter> getParameters() {
+        return parameters;
+    }
+
+    public void setParameters(List<Parameter> parameters) {
+        this.parameters = parameters;
+    }
+
+    public String getBody() {
+        return body;
+    }
+
+    public void setBody(String body) {
+        this.body = body;
+    }
+}
+```
+
+### 3. **`Parameter.java`** — 方法参数类
+
+```java
+public class Parameter {
+    private String type;
+    private String name;
+
+    // Getters and Setters
+    public String getType() {
+        return type;
+    }
+
+    public void setType(String type) {
+        this.type = type;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+}
+```
+
+### 4. **`XMLRuleParser.java`** — 解析 XML 文件的类
+
+```java
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
+
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
+
+public class XMLRuleParser {
+
+    public List<Rule> parse(String xmlFilePath) throws Exception {
+        List<Rule> rules = new ArrayList<>();
+
+        File xmlFile = new File(xmlFilePath);
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        DocumentBuilder builder = factory.newDocumentBuilder();
+        Document document = builder.parse(xmlFile);
+
+        NodeList ruleNodes = document.getElementsByTagName("rule");
+        for (int i = 0; i < ruleNodes.getLength(); i++) {
+            Element ruleElement = (Element) ruleNodes.item(i);
+
+            Rule rule = new Rule();
+            rule.setFilePattern(getTextContent(ruleElement, "filePattern"));
+            rule.setClassAnnotation(getTextContent(ruleElement, "classAnnotation"));
+
+            // Parse imports
+            List<String> imports = new ArrayList<>();
+            NodeList importNodes = ruleElement.getElementsByTagName("imports");
+            for (int j = 0; j < importNodes.getLength(); j++) {
+                imports.add(importNodes.item(j).getTextContent());
+            }
+            rule.setImports(imports);
+
+            // Parse methods
+            List<Method> methods = new ArrayList<>();
+            NodeList methodNodes = ruleElement.getElementsByTagName("method");
+            for (int j = 0; j < methodNodes.getLength(); j++) {
+                Element methodElement = (Element) methodNodes.item(j);
+
+                Method method = new Method();
+                method.setName(getTextContent(methodElement, "name"));
+                method.setOperation(getTextContent(methodElement, "operation"));
+                method.setReturnType(getTextContent(methodElement, "returnType"));
+
+                // Parse parameters
+                List<Parameter> parameters = new ArrayList<>();
+                NodeList paramNodes = methodElement.getElementsByTagName("parameter");
+                for (int k = 0; k < paramNodes.getLength(); k++) {
+                    Element paramElement = (Element) paramNodes.item(k);
+                    Parameter param = new Parameter();
+                    param.setType(getTextContent(paramElement, "type"));
+                    param.setName(getTextContent(paramElement, "name"));
+                    parameters.add(param);
+                }
+                method.setParameters(parameters);
+
+                method.setBody(getTextContent(methodElement, "body"));
+                methods.add(method);
+            }
+            rule.setMethods(methods);
+            rules.add(rule);
+        }
+        return rules;
+    }
+
+    private String getTextContent(Element element, String tagName) {
+        return element.getElementsByTagName(tagName).item(0).getTextContent();
+    }
+}
+```
+
+### 5. **`JavaFileModifier.java`** — 批量修改 Java 文件
+
+```java
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.Parameter;
+import com.github.javaparser.ast.stmt.BlockStmt;
+import com.github.javaparser.ast.stmt.ReturnStmt;
+import com.github.javaparser.JavaParser;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.List;
+
+public class JavaFileModifier {
+    private JavaParser javaParser = new JavaParser();
+
+    public void modifyFile(File file, List<Rule> rules) throws IOException {
+        CompilationUnit cu = javaParser.parse(file).getResult().orElse(null);
+        if (cu == null) {
+            System.out.println("Error parsing file: " + file.getName());
+            return;
+        }
+
+        // 遍历所有规则
+        for (Rule rule : rules) {
+            if (file.getName().matches(rule.getFilePattern())) {
+
+                // 查找类声明
+                cu.findFirst(ClassOrInterfaceDeclaration.class).ifPresent(clazz -> {
+                    // 添加类注解
+                    if (rule.getClassAnnotation() != null) {
+                        clazz.addAnnotation(rule.getClassAnnotation());
+                    }
+
+                    // 添加导入
+                    for (String importStr : rule.getImports()) {
+                        cu.addImport(importStr);
+                    }
+
+                    // 遍历处理方法规则
+                    for (Method method : rule.getMethods()) {
+                        handleMethodOperation(clazz, method);
+                    }
+                });
+            }
+        }
+
+        // 将修改后的代码写回文件
+        Files.write(Paths.get(file.getAbsolutePath()), cu.toString().getBytes());
+    }
+
+    // 处理方法的增删改
+    private void handleMethodOperation(ClassOrInterfaceDeclaration clazz, Method method) {
+        String operation = method.getOperation(); // 获取操作类型
+
+        switch (operation) {
+            case "add":
+                addMethodToClass(clazz, method);
+                break;
+            case "update":
+                updateMethodInClass(clazz, method);
+                break;
+            case "delete":
+                removeMethodFromClass(clazz, method);
+                break;
+        }
+    }
+
+    // 新增方法
+    private void addMethodToClass(ClassOrInterfaceDeclaration clazz, Method method) {
+        MethodDeclaration methodDecl = clazz.addMethod(method.getName());
+        methodDecl.setType(method.getReturnType());
+
+        for (Parameter param : method.getParameters()) {
+            com.github.javaparser.ast.body.Parameter jpParameter = new com.github.javaparser.ast.body.Parameter(
+                javaParser.parseType(param.getType()).getResult().get(), param.getName());
+            methodDecl.addParameter(jpParameter);
+        }
+
+        BlockStmt body = generateMethodBody(method);
+        methodDecl.setBody(body);
+    }
+
+    // 修改已有方法
+    private void updateMethodInClass(ClassOrInterfaceDeclaration clazz, Method method) {
+        clazz.getMethodsByName(method.getName()).forEach(existingMethod -> {
+            BlockStmt body = generateMethodBody(method);
+            existingMethod.setBody(body);
+            existingMethod.setType(method.getReturnType());
+        });
+    }
+
+    // 删除方法
+    private void removeMethodFromClass(ClassOrInterfaceDeclaration clazz, Method method) {
+        clazz.getMethodsByName(method.getName()).forEach(MethodDeclaration::remove);
+    }
+
+    private BlockStmt generateMethodBody(Method method) {
+        BlockStmt body = new BlockStmt();
+
+        if ("dynamic".equals(method.getBody())) {
+            if ("findForward".equals(method.getName())) {
+                body.addStatement(new ReturnStmt("forwardName + \"Page\""));
+            }
+        } else {
+            body.addStatement(new ReturnStmt(method.getBody()));
+        }
+
+        return body;
+    }
+}
+```
+
+### 6. **`BatchProcessor.java`** — 批量处理器
+
+```java
+import java.io.File;
+import java.util.List;
+
+public class BatchProcessor {
+
+    private XMLRuleParser ruleParser;
+    private JavaFileModifier fileModifier;
+
+    public BatchProcessor() {
+        this.ruleParser = new XMLRuleParser();
+        this.fileModifier = new JavaFileModifier();
+    }
+
+    public void processFiles(String ruleXmlPath, String projectPath) throws Exception {
+        List<Rule> rules = ruleParser.parse(ruleXmlPath);
+        File projectDir = new File(projectPath);
+
+        if (projectDir.isDirectory()) {
+            for (File file : projectDir.listFiles()) {
+                if (file.isFile() && file.getName().endsWith(".java")) {
+                    fileModifier.modifyFile(file, rules);
+                }
+            }
+        }
+    }
+
+    public static void main(String[] args) throws Exception {
+        if (args.length < 2) {
+            System.out.println("Usage: java BatchProcessor <rules.xml> <project_path>");
+            return;
+        }
+
+        String rulesXmlPath = args[0];
+        String projectPath = args[1];
+
+        BatchProcessor processor = new BatchProcessor();
+        processor.processFiles(rulesXmlPath, projectPath);
+    }
+}
+```
+
+### 总结
+
+- `Rule`, `Method`, `Parameter` 类定义规则的结构。
+- `XMLRuleParser` 用于解析 XML 文件并转换为 Java 对象。
+- `JavaFileModifier` 用于修改 Java 文件，支持类注解、import、方法的增删改操作。
+- `BatchProcessor` 通过主函数调用，处理整个项目目录中的 Java 文件。
+
+你可以在 `rules.xml` 中自定义规则，然后通过 `BatchProcessor` 运行批量修改代码。
+
+
 是的，你的需求不仅仅是新增方法，可能还包括对已有方法的修改和删除操作。因此，在 `JavaFileModifier` 中，需要根据规则实现新增、修改、删除方法的逻辑。
 
 为了实现增删改的操作，我们可以扩展 `JavaFileModifier` 的逻辑，分别处理添加、修改和删除方法的情况。
