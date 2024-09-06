@@ -1,0 +1,394 @@
+为了满足你的需求，我们将规则操作扩展为包括 `add`, `update`, 和 `remove`，并将其应用到所有支持的部分，包括类注解、字段注解、继承、接口实现、import、方法等。确保每个部分都有对应的增删改操作。
+
+### 更新后的 `rules.xml` 示例
+
+```xml
+<rules>
+    <rule>
+        <filePattern>.*Service\.java$</filePattern>
+
+        <!-- 类注解 -->
+        <classAnnotations>
+            <add>
+                <annotation>@Service</annotation>
+            </add>
+            <remove>
+                <annotation>@OldService</annotation>
+            </remove>
+            <update>
+                <oldAnnotation>@DeprecatedService</oldAnnotation>
+                <newAnnotation>@Service</newAnnotation>
+            </update>
+        </classAnnotations>
+
+        <!-- 字段注解 -->
+        <fieldAnnotations>
+            <add>
+                <annotation>@Autowired</annotation>
+            </add>
+            <remove>
+                <annotation>@DeprecatedAutowired</annotation>
+            </remove>
+            <update>
+                <oldAnnotation>@Inject</oldAnnotation>
+                <newAnnotation>@Autowired</newAnnotation>
+            </update>
+        </fieldAnnotations>
+
+        <!-- 继承操作 -->
+        <parentClass>
+            <add>
+                <parent>NewServiceBase</parent>
+            </add>
+            <remove>
+                <parent>OldBaseService</parent>
+            </remove>
+            <update>
+                <oldParent>BaseService</oldParent>
+                <newParent>NewServiceBase</newParent>
+            </update>
+        </parentClass>
+
+        <!-- 接口实现 -->
+        <interfaces>
+            <add>
+                <interface>NewInterface</interface>
+            </add>
+            <remove>
+                <interface>OldInterface</interface>
+            </remove>
+            <update>
+                <oldInterface>OldServiceInterface</oldInterface>
+                <newInterface>NewServiceInterface</newInterface>
+            </update>
+        </interfaces>
+
+        <!-- import 操作 -->
+        <imports>
+            <add>
+                <import>org.springframework.stereotype.Service</import>
+            </add>
+            <remove>
+                <import>org.example.oldpackage.Service</import>
+            </remove>
+            <update>
+                <oldImport>org.example.legacy.Service</oldImport>
+                <newImport>org.springframework.stereotype.Service</newImport>
+            </update>
+        </imports>
+
+        <!-- 方法操作 -->
+        <methods>
+            <add>
+                <method>
+                    public void newMethod() {
+                        // 新增的方法体内容
+                    }
+                </method>
+            </add>
+            <remove>
+                <method>oldMethod</method>
+            </remove>
+            <update>
+                <oldMethod>findById</oldMethod>
+                <newMethod>
+                    public Object findById(Long id) {
+                        // 更新的方法体内容
+                    }
+                </newMethod>
+            </update>
+        </methods>
+    </rule>
+</rules>
+```
+
+### 更新后的 `Rule` 类
+
+这里我们为所有支持的部分（类注解、字段注解、继承、接口实现、import、方法等）添加了 `add`、`remove` 和 `update` 操作。
+
+```java
+import java.util.List;
+
+public class Rule {
+    private String filePattern;
+
+    // 类注解
+    private List<String> classAnnotationsToAdd;
+    private List<String> classAnnotationsToRemove;
+    private List<String[]> classAnnotationsToUpdate; // [oldAnnotation, newAnnotation]
+
+    // 字段注解
+    private List<String> fieldAnnotationsToAdd;
+    private List<String> fieldAnnotationsToRemove;
+    private List<String[]> fieldAnnotationsToUpdate; // [oldAnnotation, newAnnotation]
+
+    // 继承操作
+    private List<String> parentClassToAdd;
+    private List<String> parentClassToRemove;
+    private List<String[]> parentClassToUpdate; // [oldParent, newParent]
+
+    // 接口实现
+    private List<String> interfacesToAdd;
+    private List<String> interfacesToRemove;
+    private List<String[]> interfacesToUpdate; // [oldInterface, newInterface]
+
+    // Import 语句
+    private List<String> importsToAdd;
+    private List<String> importsToRemove;
+    private List<String[]> importsToUpdate; // [oldImport, newImport]
+
+    // 方法
+    private List<String> methodsToAdd;
+    private List<String> methodsToRemove;
+    private List<String[]> methodsToUpdate; // [oldMethod, newMethod]
+
+    // Getters 和 Setters
+    // ...
+}
+```
+
+### 更新后的 `XMLRuleParser` 类
+
+我们为 `XMLRuleParser` 扩展了 `add`, `remove` 和 `update` 操作的支持，并为每个操作类型进行解析。
+
+```java
+import org.w3c.dom.*;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
+
+public class XMLRuleParser {
+
+    public List<Rule> parseRules(String xmlFilePath) throws Exception {
+        List<Rule> rules = new ArrayList<>();
+
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        DocumentBuilder builder = factory.newDocumentBuilder();
+        Document doc = builder.parse(new File(xmlFilePath));
+
+        NodeList ruleNodes = doc.getElementsByTagName("rule");
+        for (int i = 0; i < ruleNodes.getLength(); i++) {
+            Node ruleNode = ruleNodes.item(i);
+            if (ruleNode.getNodeType() == Node.ELEMENT_NODE) {
+                Element ruleElement = (Element) ruleNode;
+
+                Rule rule = new Rule();
+                rule.setFilePattern(ruleElement.getElementsByTagName("filePattern").item(0).getTextContent());
+
+                // 解析类注解
+                rule.setClassAnnotationsToAdd(getTagContents(ruleElement, "classAnnotations", "add", "annotation"));
+                rule.setClassAnnotationsToRemove(getTagContents(ruleElement, "classAnnotations", "remove", "annotation"));
+                rule.setClassAnnotationsToUpdate(getTagContentsForUpdate(ruleElement, "classAnnotations", "update", "oldAnnotation", "newAnnotation"));
+
+                // 解析字段注解
+                rule.setFieldAnnotationsToAdd(getTagContents(ruleElement, "fieldAnnotations", "add", "annotation"));
+                rule.setFieldAnnotationsToRemove(getTagContents(ruleElement, "fieldAnnotations", "remove", "annotation"));
+                rule.setFieldAnnotationsToUpdate(getTagContentsForUpdate(ruleElement, "fieldAnnotations", "update", "oldAnnotation", "newAnnotation"));
+
+                // 解析继承操作
+                rule.setParentClassToAdd(getTagContents(ruleElement, "parentClass", "add", "parent"));
+                rule.setParentClassToRemove(getTagContents(ruleElement, "parentClass", "remove", "parent"));
+                rule.setParentClassToUpdate(getTagContentsForUpdate(ruleElement, "parentClass", "update", "oldParent", "newParent"));
+
+                // 解析接口操作
+                rule.setInterfacesToAdd(getTagContents(ruleElement, "interfaces", "add", "interface"));
+                rule.setInterfacesToRemove(getTagContents(ruleElement, "interfaces", "remove", "interface"));
+                rule.setInterfacesToUpdate(getTagContentsForUpdate(ruleElement, "interfaces", "update", "oldInterface", "newInterface"));
+
+                // 解析 imports
+                rule.setImportsToAdd(getTagContents(ruleElement, "imports", "add", "import"));
+                rule.setImportsToRemove(getTagContents(ruleElement, "imports", "remove", "import"));
+                rule.setImportsToUpdate(getTagContentsForUpdate(ruleElement, "imports", "update", "oldImport", "newImport"));
+
+                // 解析方法
+                rule.setMethodsToAdd(getTagContents(ruleElement, "methods", "add", "method"));
+                rule.setMethodsToRemove(getTagContents(ruleElement, "methods", "remove", "method"));
+                rule.setMethodsToUpdate(getTagContentsForUpdate(ruleElement, "methods", "update", "oldMethod", "newMethod"));
+
+                rules.add(rule);
+            }
+        }
+
+        return rules;
+    }
+
+    private List<String> getTagContents(Element element, String section, String operation, String subTag) {
+        NodeList nodes = element.getElementsByTagName(section).item(0).getElementsByTagName(operation);
+        List<String> contents = new ArrayList<>();
+        for (int i = 0; i < nodes.getLength(); i++) {
+            contents.add(nodes.item(i).getTextContent());
+        }
+        return contents;
+    }
+
+    private List<String[]> getTagContentsForUpdate(Element element, String section, String operation, String oldTag, String newTag) {
+        NodeList updateNodes = element.getElementsByTagName(section).item(0).getElementsByTagName(operation);
+        List<String[]> updates = new ArrayList<>();
+        for (int i = 0; i < updateNodes.getLength(); i++) {
+            Element updateElement = (Element) updateNodes.item(i);
+            String oldContent = updateElement.getElementsByTagName(oldTag).item(0).getTextContent();
+            String newContent = updateElement.getElementsByTagName(newTag).item(0).getTextContent();
+            updates.add(new String[]{oldContent, newContent});
+        }
+        return updates;
+    }
+}
+```
+
+### 更新后的 `JavaFileModifier` 类
+
+```java
+import com.github.javaparser.JavaParser;
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.VariableDeclarator;
+import com.github.javaparser.ast.type.ClassOrInterfaceType;
+
+import java.util.List;
+
+public class JavaFileModifier {
+
+    public void modify(CompilationUnit cu, Rule rule) {
+        processClassAnnotations(cu, rule);
+        processFieldAnnotations(cu, rule);
+        processParentClass(cu, rule);
+        processInterfaces(cu, rule);
+        processImports(cu, rule);
+        processMethods(cu, rule);
+    }
+
+    private void processClassAnnotations(CompilationUnit cu, Rule rule) {
+        for (ClassOrInterfaceDeclaration clazz : cu.findAll(ClassOrInterfaceDeclaration.class)) {
+            // 添加类注解
+            for (String annotation : rule.getClassAnnotationsToAdd()) {
+                if (!clazz.getAnnotations().stream().anyMatch(a -> a.getNameAsString().equals(annotation.replace("@", "")))) {
+                    clazz.addAnnotation(annotation);
+                }
+            }
+
+            // 删除类注解
+            for (String annotation : rule.getClassAnnotationsToRemove()) {
+                clazz.getAnnotations().removeIf(a -> a.getNameAsString().equals(annotation.replace("@", "")));
+            }
+
+            // 更新类注解
+            for (String[] update : rule.getClassAnnotationsToUpdate()) {
+                clazz.getAnnotations().stream()
+                        .filter(a -> a.getNameAsString().equals(update[0].replace("@", "")))
+                        .forEach(a -> a.setName(update[1].replace("@", "")));
+            }
+        }
+    }
+
+    private void processFieldAnnotations(CompilationUnit cu, Rule rule) {
+        for (VariableDeclarator field : cu.findAll(VariableDeclarator.class)) {
+            // 添加字段注解
+            for (String annotation : rule.getFieldAnnotationsToAdd()) {
+                field.addAnnotation(annotation);
+            }
+
+            // 删除字段注解
+            for (String annotation : rule.getFieldAnnotationsToRemove()) {
+                field.getAnnotations().removeIf(a -> a.getNameAsString().equals(annotation.replace("@", "")));
+            }
+
+            // 更新字段注解
+            for (String[] update : rule.getFieldAnnotationsToUpdate()) {
+                field.getAnnotations().stream()
+                        .filter(a -> a.getNameAsString().equals(update[0].replace("@", "")))
+                        .forEach(a -> a.setName(update[1].replace("@", "")));
+            }
+        }
+    }
+
+    private void processParentClass(CompilationUnit cu, Rule rule) {
+        for (ClassOrInterfaceDeclaration clazz : cu.findAll(ClassOrInterfaceDeclaration.class)) {
+            // 添加继承
+            for (String parent : rule.getParentClassToAdd()) {
+                if (!clazz.getExtendedTypes().stream().anyMatch(e -> e.getNameAsString().equals(parent))) {
+                    clazz.addExtendedType(parent);
+                }
+            }
+
+            // 删除继承
+            for (String parent : rule.getParentClassToRemove()) {
+                clazz.getExtendedTypes().removeIf(e -> e.getNameAsString().equals(parent));
+            }
+
+            // 更新继承
+            for (String[] update : rule.getParentClassToUpdate()) {
+                clazz.getExtendedTypes().stream()
+                        .filter(e -> e.getNameAsString().equals(update[0]))
+                        .forEach(e -> e.setName(update[1]));
+            }
+        }
+    }
+
+    private void processInterfaces(CompilationUnit cu, Rule rule) {
+        for (ClassOrInterfaceDeclaration clazz : cu.findAll(ClassOrInterfaceDeclaration.class)) {
+            // 添加接口
+            for (String iface : rule.getInterfacesToAdd()) {
+                if (!clazz.getImplementedTypes().stream().anyMatch(i -> i.getNameAsString().equals(iface))) {
+                    clazz.addImplementedType(iface);
+                }
+            }
+
+            // 删除接口
+            for (String iface : rule.getInterfacesToRemove()) {
+                clazz.getImplementedTypes().removeIf(i -> i.getNameAsString().equals(iface));
+            }
+
+            // 更新接口
+            for (String[] update : rule.getInterfacesToUpdate()) {
+                clazz.getImplementedTypes().stream()
+                        .filter(i -> i.getNameAsString().equals(update[0]))
+                        .forEach(i -> i.setName(update[1]));
+            }
+        }
+    }
+
+    private void processImports(CompilationUnit cu, Rule rule) {
+        for (String importStmt : rule.getImportsToAdd()) {
+            if (!cu.getImports().stream().anyMatch(i -> i.getNameAsString().equals(importStmt))) {
+                cu.addImport(importStmt);
+            }
+        }
+
+        for (String importStmt : rule.getImportsToRemove()) {
+            cu.getImports().removeIf(i -> i.getNameAsString().equals(importStmt));
+        }
+
+        for (String[] update : rule.getImportsToUpdate()) {
+            cu.getImports().stream()
+                    .filter(i -> i.getNameAsString().equals(update[0]))
+                    .forEach(i -> i.setName(update[1]));
+        }
+    }
+
+    private void processMethods(CompilationUnit cu, Rule rule) {
+        for (ClassOrInterfaceDeclaration clazz : cu.findAll(ClassOrInterfaceDeclaration.class)) {
+            // 添加方法
+            for (String method : rule.getMethodsToAdd()) {
+                clazz.addMethod(method);
+            }
+
+            // 删除方法
+            for (String method : rule.getMethodsToRemove()) {
+                clazz.getMethods().removeIf(m -> m.getNameAsString().equals(method));
+            }
+
+            // 更新方法
+            for (String[] update : rule.getMethodsToUpdate()) {
+                clazz.getMethods().stream()
+                        .filter(m -> m.getNameAsString().equals(update[0]))
+                        .forEach(m -> m.setBody(JavaParser.parseBlock(update[1])));
+            }
+        }
+    }
+}
+```
+
+这段代码完成了所有操作的增删改扩展。每个部分（类注解、字段注解、继承、接口、import、方法）都可以进行 `add`, `remove`, `update` 操作。
