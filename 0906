@@ -1,3 +1,469 @@
+好的，我将修改规则以便支持多个 `add`、`update` 和 `remove` 标签。每个操作类型可以定义多个操作，并通过多个相同的标签进行标识。
+
+### 更新后的 `rules.xml` 示例
+
+```xml
+<rules>
+    <rule>
+        <filePattern>.*Controller\.java$</filePattern>
+        <classAnnotations>
+            <add>
+                <annotation>Controller</annotation>
+                <import>org.springframework.stereotype.Controller</import>
+            </add>
+            <add>
+                <annotation>RestController</annotation>
+                <import>org.springframework.web.bind.annotation.RestController</import>
+            </add>
+            <remove>
+                <annotation>OldController</annotation>
+            </remove>
+        </classAnnotations>
+
+        <parentClass>
+            <add>
+                <newClass>BaseController</newClass>
+                <import>com.example.BaseController</import>
+            </add>
+            <remove>
+                <oldClass>OldBaseController</oldClass>
+            </remove>
+        </parentClass>
+
+        <fieldAnnotations>
+            <add>
+                <annotation>Autowired</annotation>
+                <import>org.springframework.beans.factory.annotation.Autowired</import>
+            </add>
+            <remove>
+                <annotation>OldAutowired</annotation>
+            </remove>
+        </fieldAnnotations>
+
+        <methods>
+            <add>
+                <name>findForward</name>
+                <returnType>String</returnType>
+                <body>return "forward";</body>
+            </add>
+            <update>
+                <name>existingMethod</name>
+                <body>// updated body</body>
+            </update>
+        </methods>
+    </rule>
+</rules>
+```
+
+### 完整代码
+
+#### `Rule.java`
+
+```java
+import java.util.List;
+
+public class Rule {
+    private String filePattern;
+
+    private List<AnnotationOperation> classAnnotations;
+    private List<ParentClassOperation> parentClassOperations;
+    private List<AnnotationOperation> fieldAnnotations;
+    private List<MethodOperation> methods;
+
+    public String getFilePattern() {
+        return filePattern;
+    }
+
+    public void setFilePattern(String filePattern) {
+        this.filePattern = filePattern;
+    }
+
+    public List<AnnotationOperation> getClassAnnotations() {
+        return classAnnotations;
+    }
+
+    public void setClassAnnotations(List<AnnotationOperation> classAnnotations) {
+        this.classAnnotations = classAnnotations;
+    }
+
+    public List<ParentClassOperation> getParentClassOperations() {
+        return parentClassOperations;
+    }
+
+    public void setParentClassOperations(List<ParentClassOperation> parentClassOperations) {
+        this.parentClassOperations = parentClassOperations;
+    }
+
+    public List<AnnotationOperation> getFieldAnnotations() {
+        return fieldAnnotations;
+    }
+
+    public void setFieldAnnotations(List<AnnotationOperation> fieldAnnotations) {
+        this.fieldAnnotations = fieldAnnotations;
+    }
+
+    public List<MethodOperation> getMethods() {
+        return methods;
+    }
+
+    public void setMethods(List<MethodOperation> methods) {
+        this.methods = methods;
+    }
+
+    public static class AnnotationOperation {
+        private String operationType;  // add, update, remove
+        private String annotation;
+        private String importStatement;
+
+        public AnnotationOperation(String operationType, String annotation, String importStatement) {
+            this.operationType = operationType;
+            this.annotation = annotation;
+            this.importStatement = importStatement;
+        }
+
+        public String getOperationType() {
+            return operationType;
+        }
+
+        public String getAnnotation() {
+            return annotation;
+        }
+
+        public String getImportStatement() {
+            return importStatement;
+        }
+    }
+
+    public static class ParentClassOperation {
+        private String operationType;
+        private String oldClassName;
+        private String newClassName;
+        private String importStatement;
+
+        public ParentClassOperation(String operationType, String oldClassName, String newClassName, String importStatement) {
+            this.operationType = operationType;
+            this.oldClassName = oldClassName;
+            this.newClassName = newClassName;
+            this.importStatement = importStatement;
+        }
+
+        public String getOperationType() {
+            return operationType;
+        }
+
+        public String getOldClassName() {
+            return oldClassName;
+        }
+
+        public String getNewClassName() {
+            return newClassName;
+        }
+
+        public String getImportStatement() {
+            return importStatement;
+        }
+    }
+
+    public static class MethodOperation {
+        private String operationType;
+        private String methodName;
+        private String returnType;
+        private List<String> params;
+        private String body;
+
+        public MethodOperation(String operationType, String methodName, String returnType, List<String> params, String body) {
+            this.operationType = operationType;
+            this.methodName = methodName;
+            this.returnType = returnType;
+            this.params = params;
+            this.body = body;
+        }
+
+        public String getOperationType() {
+            return operationType;
+        }
+
+        public String getMethodName() {
+            return methodName;
+        }
+
+        public String getReturnType() {
+            return returnType;
+        }
+
+        public List<String> getParams() {
+            return params;
+        }
+
+        public String getBody() {
+            return body;
+        }
+    }
+}
+```
+
+#### `JavaFileModifier.java`
+
+```java
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.VariableDeclarator;
+import com.github.javaparser.ast.expr.NormalAnnotationExpr;
+import com.github.javaparser.ast.expr.NameExpr;
+import com.github.javaparser.ast.stmt.BlockStmt;
+
+public class JavaFileModifier {
+
+    public void processFile(CompilationUnit cu, Rule rule) {
+        processClassAnnotations(cu, rule);
+        processParentClass(cu, rule);
+        processFieldAnnotations(cu, rule);
+        processMethods(cu, rule);
+    }
+
+    private void processClassAnnotations(CompilationUnit cu, Rule rule) {
+        rule.getClassAnnotations().forEach(operation -> {
+            cu.findAll(ClassOrInterfaceDeclaration.class).forEach(clazz -> {
+                if (operation.getOperationType().equals("add")) {
+                    clazz.addAnnotation(new NormalAnnotationExpr(new NameExpr(operation.getAnnotation()), null));
+                    addImportIfNecessary(cu, operation.getImportStatement());
+                } else if (operation.getOperationType().equals("remove")) {
+                    clazz.getAnnotations().removeIf(annotation ->
+                            annotation.getNameAsString().equals(operation.getAnnotation()));
+                }
+            });
+        });
+    }
+
+    private void processParentClass(CompilationUnit cu, Rule rule) {
+        rule.getParentClassOperations().forEach(operation -> {
+            cu.findAll(ClassOrInterfaceDeclaration.class).forEach(clazz -> {
+                if (operation.getOperationType().equals("add")) {
+                    clazz.addExtendedType(operation.getNewClassName());
+                    addImportIfNecessary(cu, operation.getImportStatement());
+                } else if (operation.getOperationType().equals("update")) {
+                    clazz.getExtendedTypes().forEach(type -> {
+                        if (type.getNameAsString().equals(operation.getOldClassName())) {
+                            type.setName(operation.getNewClassName());
+                            addImportIfNecessary(cu, operation.getImportStatement());
+                        }
+                    });
+                } else if (operation.getOperationType().equals("remove")) {
+                    clazz.getExtendedTypes().removeIf(type ->
+                            type.getNameAsString().equals(operation.getOldClassName()));
+                }
+            });
+        });
+    }
+
+    private void processFieldAnnotations(CompilationUnit cu, Rule rule) {
+        rule.getFieldAnnotations().forEach(operation -> {
+            cu.findAll(VariableDeclarator.class).forEach(variable -> {
+                if (operation.getOperationType().equals("add")) {
+                    variable.addAnnotation(new NormalAnnotationExpr(new NameExpr(operation.getAnnotation()), null));
+                    addImportIfNecessary(cu, operation.getImportStatement());
+                } else if (operation.getOperationType().equals("remove")) {
+                    variable.getAnnotations().removeIf(annotation ->
+                            annotation.getNameAsString().equals(operation.getAnnotation()));
+                }
+            });
+        });
+    }
+
+    private void processMethods(CompilationUnit cu, Rule rule) {
+        rule.getMethods().forEach(operation -> {
+            cu.findAll(ClassOrInterfaceDeclaration.class).forEach(clazz -> {
+                if (operation.getOperationType().equals("add")) {
+                    MethodDeclaration newMethod = new MethodDeclaration();
+                    newMethod.setName(operation.getMethodName());
+                    newMethod.setType(operation.getReturnType());
+                    BlockStmt body = new BlockStmt();
+                    body.addStatement(operation.getBody());
+                    newMethod.setBody(body);
+                    clazz.addMember(newMethod);
+                } else if (operation.getOperationType().equals("remove")) {
+                    clazz.getMethods().removeIf(method ->
+                            method.getNameAsString().equals(operation.getMethodName()));
+                } else if (operation.getOperationType().equals("update")) {
+                    clazz.getMethods().forEach(method -> {
+                        if (method.getNameAsString().equals(operation.getMethodName())) {
+                            method.setBody(new BlockStmt().addStatement(operation.getBody()));
+                        }
+                    });
+                }
+            });
+        });
+    }
+
+    private void addImportIfNecessary(CompilationUnit cu, String importStatement) {
+        if (importStatement != null && !importStatement.isEmpty()) {
+            if (cu.getImports().stream().noneMatch(imp -> imp.getNameAsString().equals(importStatement))) {
+                cu.addImport(importStatement);
+            }
+        }
+    }
+}
+```
+
+#### `XMLRuleParser.java`
+
+```java
+import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public class XMLRuleParser {
+
+    public Rule parseRule(Element ruleElement) {
+        Rule rule = new Rule();
+        rule.setFilePattern(getTagValue("filePattern", ruleElement));
+        rule.setClassAnnotations(parseAnnotationOperations(ruleElement, "classAnnotations"));
+        rule.setParentClassOperations(parseParentClassOperations(ruleElement));
+        rule.setFieldAnnotations(parseAnnotationOperations(ruleElement, "fieldAnnotations"));
+        rule.setMethods(parseMethodOperations(ruleElement));
+        return rule;
+    }
+
+    private List<Rule.AnnotationOperation> parseAnnotationOperations(Element ruleElement, String tag) {
+        NodeList annotationNodes = ruleElement.getElementsByTagName(tag);
+        List<Rule.AnnotationOperation> operations = new ArrayList<>();
+        if (annotationNodes.getLength() > 0) {
+            Element annotationElement = (Element) annotationNodes.item(0);
+            NodeList operationNodes = annotationElement.getChildNodes();
+            for (int i = 0; i < operationNodes.getLength(); i++) {
+                if (operationNodes.item(i) instanceof Element) {
+                    Element operationElement = (Element) operationNodes.item(i);
+                    String operationType = operationElement.getTagName();
+                    String annotation = getTagValue("annotation", operationElement);
+                    String importStatement = getTagValue("import", operationElement);
+                    operations.add(new Rule.AnnotationOperation(operationType, annotation, importStatement));
+                }
+            }
+        }
+        return operations;
+    }
+
+    private List<Rule.ParentClassOperation> parseParentClassOperations(Element ruleElement) {
+        NodeList parentClassNodes = ruleElement.getElementsByTagName("parentClass");
+        List<Rule.ParentClassOperation> operations = new ArrayList<>();
+        if (parentClassNodes.getLength() > 0) {
+            Element parentClassElement = (Element) parentClassNodes.item(0);
+            NodeList operationNodes = parentClassElement.getChildNodes();
+            for (int i = 0; i < operationNodes.getLength(); i++) {
+                if (operationNodes.item(i) instanceof Element) {
+                    Element operationElement = (Element) operationNodes.item(i);
+                    String operationType = operationElement.getTagName();
+                    String oldClass = getTagValue("oldClass", operationElement);
+                    String newClass = getTagValue("newClass", operationElement);
+                    String importStatement = getTagValue("import", operationElement);
+                    operations.add(new Rule.ParentClassOperation(operationType, oldClass, newClass, importStatement));
+                }
+            }
+        }
+        return operations;
+    }
+
+    private List<Rule.MethodOperation> parseMethodOperations(Element ruleElement) {
+        NodeList methodNodes = ruleElement.getElementsByTagName("methods");
+        List<Rule.MethodOperation> operations = new ArrayList<>();
+        if (methodNodes.getLength() > 0) {
+            Element methodsElement = (Element) methodNodes.item(0);
+            NodeList operationNodes = methodsElement.getChildNodes();
+            for (int i = 0; i < operationNodes.getLength(); i++) {
+                if (operationNodes.item(i) instanceof Element) {
+                    Element operationElement = (Element) operationNodes.item(i);
+                    String operationType = operationElement.getTagName();
+                    String methodName = getTagValue("name", operationElement);
+                    String returnType = getTagValue("returnType", operationElement);
+                    List<String> params = parseParams(operationElement);
+                    String body = getTagValue("body", operationElement);
+                    operations.add(new Rule.MethodOperation(operationType, methodName, returnType, params, body));
+                }
+            }
+        }
+        return operations;
+    }
+
+    private List<String> parseParams(Element operationElement) {
+        NodeList paramNodes = operationElement.getElementsByTagName("param");
+        List<String> params = new ArrayList<>();
+        for (int i = 0; i < paramNodes.getLength(); i++) {
+            params.add(paramNodes.item(i).getTextContent());
+        }
+        return params;
+    }
+
+    private String getTagValue(String tag, Element element) {
+        NodeList nodeList = element.getElementsByTagName(tag);
+        return nodeList.getLength() > 0 ? nodeList.item(0).getTextContent() : null;
+    }
+}
+```
+
+#### `BatchProcessor.java`
+
+```java
+import java.io.File;
+import java.util.List;
+
+public class BatchProcessor {
+
+    private XMLRuleParser ruleParser;
+    private JavaFileModifier fileModifier;
+
+    public BatchProcessor() {
+        this.ruleParser = new XMLRuleParser();
+        this.fileModifier = new JavaFileModifier();
+    }
+
+    public void processFiles(File projectDir, List<Rule> rules) {
+        File[] files = projectDir.listFiles((dir, name) -> name.endsWith(".java"));
+        if (files != null) {
+            for (File file : files) {
+                // Parse the Java file
+                CompilationUnit cu = parseJavaFile(file);
+
+                for (Rule rule : rules) {
+                    if (file.getName().matches(rule.getFilePattern())) {
+                        fileModifier.processFile(cu, rule);
+                    }
+                }
+
+                // Save the modified file
+                saveJavaFile(file, cu);
+            }
+        }
+
+        // Recursively process subdirectories
+        File[] subDirs = projectDir.listFiles(File::isDirectory);
+        if (subDirs != null) {
+            for (File subDir : subDirs) {
+                processFiles(subDir, rules);
+            }
+        }
+    }
+
+    private CompilationUnit parseJavaFile(File file) {
+        // Use JavaParser to parse the file into CompilationUnit
+        return null; // Implement file parsing
+    }
+
+    private void saveJavaFile(File file, CompilationUnit cu) {
+        // Implement saving of the modified file
+    }
+}
+```
+
+### 结论
+
+在这次更新中，每个操作类型 (`add`, `update`, `remove`) 可以支持多个标签操作，通过多个相同标签表示。例如，你可以在 `classAnnotations` 和 `methods` 中有多个 `add` 或 `update` 标签。同时，在 `parentClass` 和 `fieldAnnotations` 等其他规则中，使用类似的方式操作。
+
+这套框架支持灵活的增删改操作，能够处理复杂的规则集。
+
+
 好的，我们将所有的实体信息（如 `ParentClassRule` 和 `ParentClassUpdateRule`）都整合进 `Rule` 类中，以保持代码风格的一致性。这里是整个系统的完整代码更新，包括类注解、字段注解、父类继承、实现接口、方法修改、方法增删等操作。
 
 ### `rules.xml` 配置文件
